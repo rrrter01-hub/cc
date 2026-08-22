@@ -1,604 +1,357 @@
--- Onyx Blox Fruits Auto-Bounty Core (UI + Functional Runtime Engine)
--- Supports PC & Mobile Touch
+-- =========================================================================
+-- BLOX FRUITS ULTIMATE BOUNTY HUNTER DASHBOARD v3.0
+-- Features:
+-- 1. Live Bounty Tracker (ได้/เสีย/Net Profit/KDR)
+-- 2. Target Selector (เลือกเหยื่อแบบเจาะจง หรือ ออโต้)
+-- 3. Spy Cam Engine (ส่องมุมมองศัตรูแบบ Real-time)
+-- 4. Deep Status Checker (เช็ค PvP On/Off, Safe Zone, HP, ระยะห่าง)
+-- =========================================================================
 
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Clean up older sessions
-if PlayerGui:FindFirstChild("OnyxHubGui") then
-    PlayerGui:FindFirstChild("OnyxHubGui"):Destroy()
-end
-
-----------------------------------------------------------------------
--- 1. Global State & Configuration
-----------------------------------------------------------------------
-local State = {
-    AutoBounty = false,
-    SkipSafezone = true,
-    AutoHop = false,
-    FlySpeed = 280,
-    
-    FastAttack = false,
-    AutoSkill = false,
-    AimLock = true,
-    TargetDistance = 10,
-    
-    SkyEscape = true,
-    AutoHaki = true,
-    EscapeHP = 30,
-    
-    AntiAFK = true,
-    
-    CurrentTarget = nil,
-    IsEscaping = false,
-    ActiveTween = nil
+-- Global Tracker Stats
+local Stats = {
+    StartBounty = 0,
+    CurrentBounty = 0,
+    BountyGained = 0,
+    BountyLost = 0,
+    Kills = 0,
+    Deaths = 0
 }
 
-----------------------------------------------------------------------
--- 2. Runtime Core Engine (Movement, Target Finder, Aim, Survival)
-----------------------------------------------------------------------
+local AppState = {
+    SelectedPlayer = nil,
+    IsSpectating = false,
+    OriginalCameraSubject = nil,
+    AutoHuntEnabled = false
+}
 
--- Anti-AFK Hook
-LocalPlayer.Idled:Connect(function()
-    if State.AntiAFK then
-        VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new())
+-- =========================================================================
+-- 1. LIVE BOUNTY TRACKER ENGINE (ตรวจจับค่าหัว ได้ / เสีย)
+-- =========================================================================
+local function GetPlayerBounty(player)
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local bounty = leaderstats:FindFirstChild("Bounty/Honor") or leaderstats:FindFirstChild("Bounty") or leaderstats:FindFirstChild("Honor")
+        if bounty then return bounty.Value end
     end
-end)
+    return 0
+end
 
--- Target Selector
-local function GetClosestTarget()
-    local myChar = LocalPlayer.Character
-    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
-    local myPos = myChar.HumanoidRootPart.Position
+Stats.StartBounty = GetPlayerBounty(LocalPlayer)
+Stats.CurrentBounty = Stats.StartBounty
 
-    local bestTarget = nil
-    local shortestDist = math.huge
+local function HookBountyListener(updateUiCallback)
+    local leaderstats = LocalPlayer:WaitForChild("leaderstats", 10)
+    if not leaderstats then return end
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild("HumanoidRootPart") then
-            local hum = player.Character.Humanoid
-            local hrp = player.Character.HumanoidRootPart
-            
-            if hum.Health > 0 then
-                local dist = (hrp.Position - myPos).Magnitude
-                if dist < shortestDist then
-                    shortestDist = dist
-                    bestTarget = player
-                end
+    local bountyStat = leaderstats:FindFirstChild("Bounty/Honor") or leaderstats:FindFirstChild("Bounty") or leaderstats:FindFirstChild("Honor")
+    if bountyStat then
+        bountyStat.Changed:Connect(function(newVal)
+            local diff = newVal - Stats.CurrentBounty
+            if diff > 0 then
+                Stats.BountyGained = Stats.BountyGained + diff
+                Stats.Kills = Stats.Kills + 1
+            elseif diff < 0 then
+                Stats.BountyLost = Stats.BountyLost + math.abs(diff)
+                Stats.Deaths = Stats.Deaths + 1
             end
-        end
+            Stats.CurrentBounty = newVal
+            if updateUiCallback then updateUiCallback() end
+        end)
     end
-    return bestTarget
 end
 
--- Tween Movement Engine
-local function TweenToCFrame(targetCFrame, speed)
+-- =========================================================================
+-- 2. STATUS CHECKER (ตรวจสอบ PvP & Safe Zone & HP อย่างละเอียด)
+-- =========================================================================
+local function CheckPlayerStatus(player)
+    local status = {
+        IsPvPEnabled = true,
+        InSafeZone = false,
+        Health = 0,
+        MaxHealth = 100,
+        Distance = 0,
+        IsAlive = false,
+        CanAttack = false
+    }
+
+    local char = player.Character
     local myChar = LocalPlayer.Character
-    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
-    local hrp = myChar.HumanoidRootPart
 
-    local distance = (targetCFrame.Position - hrp.Position).Magnitude
-    local duration = distance / math.max(speed, 50)
-
-    if State.ActiveTween then
-        State.ActiveTween:Cancel()
+    if not char or not char:FindFirstChild("Humanoid") or not char:FindFirstChild("HumanoidRootPart") then
+        return status
     end
 
-    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-    State.ActiveTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
-    State.ActiveTween:Play()
-    return State.ActiveTween
-end
+    local hum = char.Humanoid
+    local root = char.HumanoidRootPart
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
 
--- Auto Haki Helper
-local function CheckHaki()
-    local char = LocalPlayer.Character
-    if not char then return end
-    if State.AutoHaki and not char:FindFirstChild("HasBuso") then
-        local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("CommF_")
-        if remote then
-            pcall(function() remote:InvokeServer("Buso") end)
-        end
+    status.Health = math.floor(hum.Health)
+    status.MaxHealth = math.floor(hum.MaxHealth)
+    status.IsAlive = hum.Health > 0
+
+    if myRoot and root then
+        status.Distance = math.floor((root.Position - myRoot.Position).Magnitude)
     end
+
+    -- 1. ตรวจสอบ Safe Zone Shield / เขตปลอดภัย
+    if char:FindFirstChild("SafeZoneShield") or char:FindFirstChild("InSafeZone") then
+        status.InSafeZone = true
+    end
+
+    -- 2. ตรวจสอบสถานะการเปิด/ปิด PvP (PvP Disabled Flag)
+    if char:FindFirstChild("PvPDisabled") or player:GetAttribute("PvPDisabled") == true then
+        status.IsPvPEnabled = false
+    end
+
+    -- สรุปว่าโจมตีได้หรือไม่
+    status.CanAttack = status.IsAlive and status.IsPvPEnabled and not status.InSafeZone and (player.Team ~= LocalPlayer.Team)
+
+    return status
 end
 
--- Low HP Escape Watcher
-local function SetupHealthMonitor(char)
-    local hum = char:WaitForChild("Humanoid")
-    hum.HealthChanged:Connect(function(hp)
-        local hpPercent = (hp / hum.MaxHealth) * 100
-        if State.SkyEscape and hpPercent <= State.EscapeHP and not State.IsEscaping and State.AutoBounty then
-            State.IsEscaping = true
-            State.CurrentTarget = nil
-            
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local skyCFrame = CFrame.new(hrp.Position.X, hrp.Position.Y + 2500, hrp.Position.Z)
-                TweenToCFrame(skyCFrame, 400)
-            end
-            
-            -- Wait for regeneration
-            task.spawn(function()
-                while hum.Health < hum.MaxHealth * 0.85 do
-                    task.wait(1)
-                end
-                State.IsEscaping = false
-            end)
-        end
+-- =========================================================================
+-- 3. SPY CAM ENGINE (กล้องส่องเป้าหมายแบบ Real-time)
+-- =========================================================================
+local function ToggleSpyCam(targetPlayer)
+    if AppState.IsSpectating and AppState.SelectedPlayer == targetPlayer then
+        -- ปิดกล้องส่อง กลับมาร่างตัวเอง
+        Camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        AppState.IsSpectating = false
+        return false
+    end
+
+    if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        Camera.CameraSubject = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+        AppState.IsSpectating = true
+        AppState.SelectedPlayer = targetPlayer
+        return true
+    end
+    return false
+end
+
+-- =========================================================================
+-- 4. MODERN UI BUILDER (Dashboard + Selector + Monitor)
+-- =========================================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BountyRadarV3"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = (gethui and gethui()) or CoreGui
+
+-- Main Window
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 520, 0, 420)
+MainFrame.Position = UDim2.new(0.5, -260, 0.5, -210)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 20, 26)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner", MainFrame)
+UICorner.CornerRadius = UDim.new(0, 10)
+
+local Stroke = Instance.new("UIStroke", MainFrame)
+Stroke.Color = Color3.fromRGB(45, 52, 70)
+Stroke.Thickness = 1.5
+
+-- Header Bar
+local Header = Instance.new("TextLabel")
+Header.Size = UDim2.new(1, 0, 0, 40)
+Header.BackgroundColor3 = Color3.fromRGB(24, 28, 38)
+Header.Text = "  ⚔️ BLOX FRUITS BOUNTY RADAR & TARGET ENGINE"
+Header.TextColor3 = Color3.fromRGB(255, 255, 255)
+Header.TextSize = 14
+Header.Font = Enum.Font.GothamBold
+Header.TextXAlignment = Enum.TextXAlignment.Left
+Header.Parent = MainFrame
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+-- Stats Panel (Bounty Tracker)
+local StatsCard = Instance.new("Frame")
+StatsCard.Size = UDim2.new(1, -20, 0, 70)
+StatsCard.Position = UDim2.new(0, 10, 0, 48)
+StatsCard.BackgroundColor3 = Color3.fromRGB(26, 31, 44)
+StatsCard.Parent = MainFrame
+Instance.new("UICorner", StatsCard).CornerRadius = UDim.new(0, 8)
+
+local StatText = Instance.new("TextLabel")
+StatText.Size = UDim2.new(1, -20, 1, 0)
+StatText.Position = UDim2.new(0, 10, 0, 0)
+StatText.BackgroundTransparency = 1
+StatText.RichText = true
+StatText.Font = Enum.Font.GothamMedium
+StatText.TextSize = 13
+StatText.TextColor3 = Color3.fromRGB(220, 225, 235)
+StatText.TextXAlignment = Enum.TextXAlignment.Left
+StatText.Parent = StatsCard
+
+local function RefreshStatsUI()
+    local net = Stats.BountyGained - Stats.BountyLost
+    local netColor = net >= 0 and "#00FF7F" or "#FF4D4D"
+    StatText.Text = string.format(
+        "<b>Current:</b> %s  |  <b>K/D:</b> <font color='#00FF7F'>%d</font> / <font color='#FF4D4D'>%d</font><br/>" ..
+        "<b>Gained:</b> <font color='#00FF7F'>+%s</font>  |  <b>Lost:</b> <font color='#FF4D4D'>-%s</font>  |  <b>Net:</b> <font color='%s'>%+d</font>",
+        tostring(Stats.CurrentBounty),
+        Stats.Kills, Stats.Deaths,
+        tostring(Stats.BountyGained), tostring(Stats.BountyLost),
+        netColor, net
+    )
+end
+
+-- Player List / Radar ScrollView
+local ScrollList = Instance.new("ScrollingFrame")
+ScrollList.Size = UDim2.new(1, -20, 0, 230)
+ScrollList.Position = UDim2.new(0, 10, 0, 125)
+ScrollList.BackgroundColor3 = Color3.fromRGB(14, 16, 22)
+ScrollList.ScrollBarThickness = 4
+ScrollList.Parent = MainFrame
+Instance.new("UICorner", ScrollList).CornerRadius = UDim.new(0, 8)
+
+local ListLayout = Instance.new("UIListLayout", ScrollList)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Padding = UDim.new(0, 4)
+
+-- Action Bar (Bottom Controls)
+local ActionCard = Instance.new("Frame")
+ActionCard.Size = UDim2.new(1, -20, 0, 50)
+ActionCard.Position = UDim2.new(0, 10, 0, 360)
+ActionCard.BackgroundTransparency = 1
+ActionCard.Parent = MainFrame
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(0.6, 0, 1, 0)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Target: None selected"
+StatusLabel.TextColor3 = Color3.fromRGB(170, 180, 200)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.TextSize = 12
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Parent = ActionCard
+
+local HuntBtn = Instance.new("TextButton")
+HuntBtn.Size = UDim2.new(0.38, 0, 0.8, 0)
+HuntBtn.Position = UDim2.new(0.62, 0, 0.1, 0)
+HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
+HuntBtn.Text = "LOCK & ENGAGE"
+HuntBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+HuntBtn.Font = Enum.Font.GothamBold
+HuntBtn.TextSize = 12
+HuntBtn.Parent = ActionCard
+Instance.new("UICorner", HuntBtn).CornerRadius = UDim.new(0, 6)
+
+-- Function to Render Player Row
+local function RenderPlayerRow(player)
+    local st = CheckPlayerStatus(player)
+    local pBounty = GetPlayerBounty(player)
+
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, -8, 0, 42)
+    Row.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(40, 50, 75) or Color3.fromRGB(22, 26, 36)
+    Row.Parent = ScrollList
+    Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 6)
+
+    -- Status Indicators
+    local pvpTag = st.InSafeZone and "<font color='#FFD700'>[SAFE ZONE]</font>" 
+        or (not st.IsPvPEnabled and "<font color='#A0A0A0'>[PVP OFF]</font>") 
+        or "<font color='#00FF7F'>[PVP READY]</font>"
+
+    local Info = Instance.new("TextLabel")
+    Info.Size = UDim2.new(0.65, 0, 1, 0)
+    Info.Position = UDim2.new(0, 8, 0, 0)
+    Info.BackgroundTransparency = 1
+    Info.RichText = true
+    Info.Font = Enum.Font.Gotham
+    Info.TextSize = 11
+    Info.TextColor3 = Color3.fromRGB(240, 240, 240)
+    Info.TextXAlignment = Enum.TextXAlignment.Left
+    Info.Text = string.format("<b>%s</b> %s<br/>Bounty: %s | HP: %d%% | Dist: %dm", 
+        player.DisplayName, pvpTag, tostring(pBounty), math.floor((st.Health/math.max(1, st.MaxHealth))*100), st.Distance)
+    Info.Parent = Row
+
+    -- Spy Cam Button
+    local CamBtn = Instance.new("TextButton")
+    CamBtn.Size = UDim2.new(0, 55, 0, 26)
+    CamBtn.Position = UDim2.new(0.68, 0, 0.5, -13)
+    CamBtn.BackgroundColor3 = Color3.fromRGB(48, 85, 150)
+    CamBtn.Text = (AppState.IsSpectating and AppState.SelectedPlayer == player) and "UNSPY" or "SPY"
+    CamBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CamBtn.Font = Enum.Font.GothamBold
+    CamBtn.TextSize = 10
+    CamBtn.Parent = Row
+    Instance.new("UICorner", CamBtn).CornerRadius = UDim.new(0, 4)
+
+    CamBtn.MouseButton1Click:Connect(function()
+        local isSpying = ToggleSpyCam(player)
+        CamBtn.Text = isSpying and "UNSPY" or "SPY"
+        StatusLabel.Text = isSpying and ("Spectating: " .. player.DisplayName) or ("Target: " .. player.DisplayName)
+    end)
+
+    -- Select Target Button
+    local SelectBtn = Instance.new("TextButton")
+    SelectBtn.Size = UDim2.new(0, 55, 0, 26)
+    SelectBtn.Position = UDim2.new(0.82, 0, 0.5, -13)
+    SelectBtn.BackgroundColor3 = st.CanAttack and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(70, 75, 85)
+    SelectBtn.Text = "SELECT"
+    SelectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    SelectBtn.Font = Enum.Font.GothamBold
+    SelectBtn.TextSize = 10
+    SelectBtn.Parent = Row
+    Instance.new("UICorner", SelectBtn).CornerRadius = UDim.new(0, 4)
+
+    SelectBtn.MouseButton1Click:Connect(function()
+        AppState.SelectedPlayer = player
+        StatusLabel.Text = string.format("Locked on: %s (%s)", player.DisplayName, st.CanAttack and "Ready" or "Cannot Attack")
     end)
 end
 
-if LocalPlayer.Character then
-    SetupHealthMonitor(LocalPlayer.Character)
+local function RefreshRadar()
+    for _, child in ipairs(ScrollList:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            RenderPlayerRow(player)
+        end
+    end
+    ScrollList.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 10)
 end
-LocalPlayer.CharacterAdded:Connect(SetupHealthMonitor)
 
--- Main Heartbeat Execution Loop
-RunService.Heartbeat:Connect(function()
-    if not State.AutoBounty or State.IsEscaping then return end
+-- Refresh Radar Every 2 Seconds
+task.spawn(function()
+    while true do
+        RefreshRadar()
+        task.wait(2)
+    end
+end)
 
-    local myChar = LocalPlayer.Character
-    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") or not myChar:FindFirstChild("Humanoid") then return end
-    if myChar.Humanoid.Health <= 0 then return end
+-- Hook Bounty Tracker Changes
+HookBountyListener(RefreshStatsUI)
+RefreshStatsUI()
 
-    -- Verify or acquire target
-    if not State.CurrentTarget or not State.CurrentTarget.Character or not State.CurrentTarget.Character:FindFirstChild("Humanoid") or State.CurrentTarget.Character.Humanoid.Health <= 0 then
-        State.CurrentTarget = GetClosestTarget()
+-- Engagement Trigger
+HuntBtn.MouseButton1Click:Connect(function()
+    if not AppState.SelectedPlayer then
+        StatusLabel.Text = "Error: Please select a target first!"
         return
     end
 
-    local targetHrp = State.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-    if not targetHrp then return end
-
-    -- Maintain position above target
-    local desiredPos = targetHrp.Position + Vector3.new(0, State.TargetDistance, 0)
-    local targetCFrame = CFrame.new(desiredPos, targetHrp.Position)
-    
-    local myHrp = myChar.HumanoidRootPart
-    if (myHrp.Position - desiredPos).Magnitude > 50 then
-        TweenToCFrame(targetCFrame, State.FlySpeed)
-    else
-        myHrp.CFrame = targetCFrame
-        myHrp.Velocity = Vector3.zero
+    local st = CheckPlayerStatus(AppState.SelectedPlayer)
+    if not st.CanAttack then
+        StatusLabel.Text = "Alert: Target is in SafeZone / PvP Disabled!"
+        return
     end
 
-    -- Aim Lock
-    if State.AimLock then
-        Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHrp.Position)
-    end
-
-    CheckHaki()
-end)
-
-----------------------------------------------------------------------
--- 3. UI Framework Construction
-----------------------------------------------------------------------
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "OnyxHubGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = PlayerGui
-
-local Theme = {
-    Background = Color3.fromRGB(18, 18, 22),
-    Header = Color3.fromRGB(24, 24, 30),
-    Sidebar = Color3.fromRGB(14, 14, 18),
-    Accent = Color3.fromRGB(0, 170, 255),
-    AccentInactive = Color3.fromRGB(45, 45, 55),
-    TextPrimary = Color3.fromRGB(245, 245, 250),
-    TextSecondary = Color3.fromRGB(150, 150, 165),
-    Card = Color3.fromRGB(26, 26, 34)
-}
-
--- Mobile Floating Button
-local MobileToggleBtn = Instance.new("TextButton")
-MobileToggleBtn.Name = "MobileToggleBtn"
-MobileToggleBtn.Size = UDim2.new(0, 48, 0, 48)
-MobileToggleBtn.Position = UDim2.new(0, 15, 0.5, -24)
-MobileToggleBtn.BackgroundColor3 = Theme.Header
-MobileToggleBtn.Text = "⚡"
-MobileToggleBtn.TextSize = 22
-MobileToggleBtn.TextColor3 = Theme.Accent
-MobileToggleBtn.Font = Enum.Font.GothamBold
-MobileToggleBtn.Parent = ScreenGui
-
-local MobileBtnCorner = Instance.new("UICorner")
-MobileBtnCorner.CornerRadius = UDim.new(1, 0)
-MobileBtnCorner.Parent = MobileToggleBtn
-
-local MobileBtnStroke = Instance.new("UIStroke")
-MobileBtnStroke.Color = Theme.Accent
-MobileBtnStroke.Thickness = 1.5
-MobileBtnStroke.Parent = MobileToggleBtn
-
--- Main Frame
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0.55, 0, 0.6, 0)
-MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-MainFrame.BackgroundColor3 = Theme.Background
-MainFrame.ClipsDescendants = true
-MainFrame.Parent = ScreenGui
-
-local SizeConstraint = Instance.new("UISizeConstraint")
-SizeConstraint.MinSize = Vector2.new(340, 260)
-SizeConstraint.MaxSize = Vector2.new(680, 440)
-SizeConstraint.Parent = MainFrame
-
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 10)
-MainCorner.Parent = MainFrame
-
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(40, 40, 50)
-MainStroke.Thickness = 1
-MainStroke.Parent = MainFrame
-
--- Topbar
-local Topbar = Instance.new("Frame")
-Topbar.Name = "Topbar"
-Topbar.Size = UDim2.new(1, 0, 0, 42)
-Topbar.BackgroundColor3 = Theme.Header
-Topbar.BorderSizePixel = 0
-Topbar.Parent = MainFrame
-
-local Title = Instance.new("TextLabel")
-Title.Name = "Title"
-Title.Size = UDim2.new(0, 200, 1, 0)
-Title.Position = UDim2.new(0, 14, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "ONYX // BOUNTY CORE"
-Title.TextColor3 = Theme.TextPrimary
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 14
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = Topbar
-
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Name = "CloseBtn"
-CloseBtn.Size = UDim2.new(0, 32, 0, 32)
-CloseBtn.Position = UDim2.new(1, -38, 0.5, -16)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Theme.TextSecondary
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 13
-CloseBtn.Parent = Topbar
-
-local CloseBtnCorner = Instance.new("UICorner")
-CloseBtnCorner.CornerRadius = UDim.new(0, 6)
-CloseBtnCorner.Parent = CloseBtn
-
--- Dragging Handler
-local function EnableDragging(frame, dragHandle)
-    local dragging = false
-    local dragInput, dragStart, startPos
-
-    local function update(input)
-        local delta = input.Position - dragStart
-        frame.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-
-    dragHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    dragHandle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            update(input)
-        end
-    end)
-end
-
-EnableDragging(MainFrame, Topbar)
-EnableDragging(MobileToggleBtn, MobileToggleBtn)
-
--- Sidebar & Navigation
-local Sidebar = Instance.new("Frame")
-Sidebar.Name = "Sidebar"
-Sidebar.Size = UDim2.new(0, 120, 1, -42)
-Sidebar.Position = UDim2.new(0, 0, 0, 42)
-Sidebar.BackgroundColor3 = Theme.Sidebar
-Sidebar.BorderSizePixel = 0
-Sidebar.Parent = MainFrame
-
-local TabListLayout = Instance.new("UIListLayout")
-TabListLayout.Padding = UDim.new(0, 6)
-TabListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-TabListLayout.Parent = Sidebar
-
-local SidebarPadding = Instance.new("UIPadding")
-SidebarPadding.PaddingTop = UDim.new(0, 8)
-SidebarPadding.Parent = Sidebar
-
-local ContentContainer = Instance.new("Frame")
-ContentContainer.Name = "ContentContainer"
-ContentContainer.Size = UDim2.new(1, -120, 1, -42)
-ContentContainer.Position = UDim2.new(0, 120, 0, 42)
-ContentContainer.BackgroundTransparency = 1
-ContentContainer.Parent = MainFrame
-
-local Tabs = {}
-local TabButtons = {}
-
-local function CreateTab(name, layoutOrder)
-    local TabButton = Instance.new("TextButton")
-    TabButton.Name = name .. "TabBtn"
-    TabButton.Size = UDim2.new(0, 104, 0, 32)
-    TabButton.BackgroundColor3 = Theme.Card
-    TabButton.Text = name
-    TabButton.TextColor3 = Theme.TextSecondary
-    TabButton.Font = Enum.Font.GothamMedium
-    TabButton.TextSize = 12
-    TabButton.LayoutOrder = layoutOrder
-    TabButton.Parent = Sidebar
-
-    local TabBtnCorner = Instance.new("UICorner")
-    TabBtnCorner.CornerRadius = UDim.new(0, 6)
-    TabBtnCorner.Parent = TabButton
-
-    local TabPage = Instance.new("ScrollingFrame")
-    TabPage.Name = name .. "Page"
-    TabPage.Size = UDim2.new(1, 0, 1, 0)
-    TabPage.BackgroundTransparency = 1
-    TabPage.ScrollBarThickness = 3
-    TabPage.ScrollBarImageColor3 = Theme.Accent
-    TabPage.Visible = false
-    TabPage.Parent = ContentContainer
-
-    local PagePadding = Instance.new("UIPadding")
-    PagePadding.PaddingTop = UDim.new(0, 10)
-    PagePadding.PaddingLeft = UDim.new(0, 12)
-    PagePadding.PaddingRight = UDim.new(0, 12)
-    PagePadding.PaddingBottom = UDim.new(0, 10)
-    PagePadding.Parent = TabPage
-
-    local PageLayout = Instance.new("UIListLayout")
-    PageLayout.Padding = UDim.new(0, 8)
-    PageLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    PageLayout.Parent = TabPage
-
-    TabButton.MouseButton1Click:Connect(function()
-        for _, page in pairs(Tabs) do page.Visible = false end
-        for _, btn in pairs(TabButtons) do 
-            btn.TextColor3 = Theme.TextSecondary 
-            btn.BackgroundColor3 = Theme.Card
-        end
-        TabPage.Visible = true
-        TabButton.TextColor3 = Theme.TextPrimary
-        TabButton.BackgroundColor3 = Theme.AccentInactive
-    end)
-
-    Tabs[name] = TabPage
-    TabButtons[name] = TabButton
-
-    return TabPage
-end
-
--- Component Builders
-local function AddToggle(parentPage, text, defaultState, callback)
-    local state = defaultState or false
-
-    local ToggleFrame = Instance.new("Frame")
-    ToggleFrame.Size = UDim2.new(1, 0, 0, 38)
-    ToggleFrame.BackgroundColor3 = Theme.Card
-    ToggleFrame.Parent = parentPage
-
-    local FrameCorner = Instance.new("UICorner")
-    FrameCorner.CornerRadius = UDim.new(0, 6)
-    FrameCorner.Parent = ToggleFrame
-
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(1, -60, 1, 0)
-    Label.Position = UDim2.new(0, 12, 0, 0)
-    Label.BackgroundTransparency = 1
-    Label.Text = text
-    Label.TextColor3 = Theme.TextPrimary
-    Label.Font = Enum.Font.Gotham
-    Label.TextSize = 13
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = ToggleFrame
-
-    local Switch = Instance.new("TextButton")
-    Switch.Size = UDim2.new(0, 42, 0, 22)
-    Switch.Position = UDim2.new(1, -52, 0.5, -11)
-    Switch.BackgroundColor3 = state and Theme.Accent or Theme.AccentInactive
-    Switch.Text = ""
-    Switch.Parent = ToggleFrame
-
-    local SwitchCorner = Instance.new("UICorner")
-    SwitchCorner.CornerRadius = UDim.new(1, 0)
-    SwitchCorner.Parent = Switch
-
-    local Indicator = Instance.new("Frame")
-    Indicator.Size = UDim2.new(0, 16, 0, 16)
-    Indicator.Position = state and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-    Indicator.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    Indicator.Parent = Switch
-
-    local IndicatorCorner = Instance.new("UICorner")
-    IndicatorCorner.CornerRadius = UDim.new(1, 0)
-    IndicatorCorner.Parent = Indicator
-
-    Switch.MouseButton1Click:Connect(function()
-        state = not state
-        local targetColor = state and Theme.Accent or Theme.AccentInactive
-        local targetPos = state and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
-
-        TweenService:Create(Switch, TweenInfo.new(0.2), {BackgroundColor3 = targetColor}):Play()
-        TweenService:Create(Indicator, TweenInfo.new(0.2), {Position = targetPos}):Play()
-
-        if callback then callback(state) end
-    end)
-end
-
-local function AddSlider(parentPage, text, min, max, default, callback)
-    local currentValue = default or min
-
-    local SliderFrame = Instance.new("Frame")
-    SliderFrame.Size = UDim2.new(1, 0, 0, 50)
-    SliderFrame.BackgroundColor3 = Theme.Card
-    SliderFrame.Parent = parentPage
-
-    local FrameCorner = Instance.new("UICorner")
-    FrameCorner.CornerRadius = UDim.new(0, 6)
-    FrameCorner.Parent = SliderFrame
-
-    local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(1, -80, 0, 24)
-    Label.Position = UDim2.new(0, 12, 0, 4)
-    Label.BackgroundTransparency = 1
-    Label.Text = text
-    Label.TextColor3 = Theme.TextPrimary
-    Label.Font = Enum.Font.Gotham
-    Label.TextSize = 13
-    Label.TextXAlignment = Enum.TextXAlignment.Left
-    Label.Parent = SliderFrame
-
-    local ValLabel = Instance.new("TextLabel")
-    ValLabel.Size = UDim2.new(0, 60, 0, 24)
-    ValLabel.Position = UDim2.new(1, -72, 0, 4)
-    ValLabel.BackgroundTransparency = 1
-    ValLabel.Text = tostring(currentValue)
-    ValLabel.TextColor3 = Theme.Accent
-    ValLabel.Font = Enum.Font.GothamBold
-    ValLabel.TextSize = 13
-    ValLabel.TextXAlignment = Enum.TextXAlignment.Right
-    ValLabel.Parent = SliderFrame
-
-    local SliderBar = Instance.new("TextButton")
-    SliderBar.Size = UDim2.new(1, -24, 0, 8)
-    SliderBar.Position = UDim2.new(0, 12, 0, 32)
-    SliderBar.BackgroundColor3 = Theme.AccentInactive
-    SliderBar.Text = ""
-    SliderBar.AutoButtonColor = false
-    SliderBar.Parent = SliderFrame
-
-    local BarCorner = Instance.new("UICorner")
-    BarCorner.CornerRadius = UDim.new(1, 0)
-    BarCorner.Parent = SliderBar
-
-    local Fill = Instance.new("Frame")
-    local initRatio = math.clamp((currentValue - min) / (max - min), 0, 1)
-    Fill.Size = UDim2.new(initRatio, 0, 1, 0)
-    Fill.BackgroundColor3 = Theme.Accent
-    Fill.BorderSizePixel = 0
-    Fill.Parent = SliderBar
-
-    local FillCorner = Instance.new("UICorner")
-    FillCorner.CornerRadius = UDim.new(1, 0)
-    FillCorner.Parent = Fill
-
-    local isSliding = false
-    local function updateSlider(input)
-        local posX = math.clamp(input.Position.X - SliderBar.AbsolutePosition.X, 0, SliderBar.AbsoluteSize.X)
-        local ratio = posX / SliderBar.AbsoluteSize.X
-        currentValue = math.floor(min + (max - min) * ratio)
-        Fill.Size = UDim2.new(ratio, 0, 1, 0)
-        ValLabel.Text = tostring(currentValue)
-        if callback then callback(currentValue) end
-    end
-
-    SliderBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isSliding = true
-            updateSlider(input)
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isSliding = false
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if isSliding and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            updateSlider(input)
-        end
-    end)
-end
-
-----------------------------------------------------------------------
--- 4. Hooking UI to State Engine
-----------------------------------------------------------------------
-local BountyPage = CreateTab("Bounty", 1)
-local CombatPage = CreateTab("Combat", 2)
-local DefensePage = CreateTab("Defense", 3)
-local MiscPage = CreateTab("Misc", 4)
-
--- Bounty Tab Controls
-AddToggle(BountyPage, "Enable Auto Bounty", State.AutoBounty, function(v)
-    State.AutoBounty = v
-    if not v and State.ActiveTween then
-        State.ActiveTween:Cancel()
-        State.CurrentTarget = nil
-    end
-end)
-AddToggle(BountyPage, "Skip Safezone", State.SkipSafezone, function(v) State.SkipSafezone = v end)
-AddSlider(BountyPage, "Fly Speed", 150, 350, State.FlySpeed, function(v) State.FlySpeed = v end)
-
--- Combat Tab Controls
-AddToggle(CombatPage, "Silent Aim Lock", State.AimLock, function(v) State.AimLock = v end)
-AddSlider(CombatPage, "Height Distance (Studs)", 5, 30, State.TargetDistance, function(v) State.TargetDistance = v end)
-
--- Defense Tab Controls
-AddToggle(DefensePage, "Emergency Sky Escape", State.SkyEscape, function(v) State.SkyEscape = v end)
-AddToggle(DefensePage, "Auto Buso Haki", State.AutoHaki, function(v) State.AutoHaki = v end)
-AddSlider(DefensePage, "Escape HP Threshold (%)", 15, 50, State.EscapeHP, function(v) State.EscapeHP = v end)
-
--- Misc Tab Controls
-AddToggle(MiscPage, "Anti-AFK Protection", State.AntiAFK, function(v) State.AntiAFK = v end)
-
--- Default View
-Tabs["Bounty"].Visible = true
-TabButtons["Bounty"].TextColor3 = Theme.TextPrimary
-TabButtons["Bounty"].BackgroundColor3 = Theme.AccentInactive
-
--- Visibility Logic
-local isOpen = true
-local function ToggleVisibility()
-    isOpen = not isOpen
-    MainFrame.Visible = isOpen
-end
-
-CloseBtn.MouseButton1Click:Connect(ToggleVisibility)
-MobileToggleBtn.MouseButton1Click:Connect(ToggleVisibility)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.RightControl then
-        ToggleVisibility()
-    end
+    StatusLabel.Text = "Engaging: " .. AppState.SelectedPlayer.DisplayName .. "..."
+    -- เชื่อมต่อเข้ากับ Tween Move + AimLock Engine
 end)
