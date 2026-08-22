@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.8 (AUTO TAUNT & PROVOKE)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.0 (MULTI-WEAPON COMBO)
 -- Features:
---  1. Auto Chat Provocation (พิมพ์ยั่วยุเป้าหมายในแชทอัตโนมัติ เพื่อดึงเข้าสถานะ PvP)
---  2. In-Combat State Force Trigger (การันตีระบบเกมมอบค่าหัว Bounty/Honor 100%)
---  3. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
---  4. Clean Melee Combat Engine: Fast M1 + Skills (Z, X, C)
---  5. Smooth Physics Tracker: เกาะติดหลังศัตรู 1.8 Studs
+--  1. Multi-Weapon Combo Pipeline: หมัด (Melee) -> ดาบ (Sword) -> ผล (Fruit)
+--  2. Continuous M1 Attack Stream (สแปมหมัด/อาวุธความเร็ว 0.035s ตลอดคอมโบ)
+--  3. Dynamic Lock-On Aim (ล็อคมุมกล้องจ้องเป้าหมายตลอดทุกสกิล)
+--  4. Smooth Anti-Glitch Stick (เกาะติดหลัง 1.6 Studs ไม่มียืนนิ่ง)
+--  5. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
 --  6. Post-Kill Safe Sky Retreat (ลอยขึ้นฟ้าทันทีหลังฆ่าเสร็จ)
---  7. 3D Billboard ESP & Radar Dashboard
+--  7. 3D Billboard ESP, Taunt Engine & Radar Dashboard
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -28,21 +28,21 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 300,               -- ความเร็วบินติดตามเป้าหมาย
-    StickDistance = 1.8,          -- ระยะห่างด้านหลังศัตรู (Studs)
-    HeightOffset = 1.0,           -- ระดับความสูงจากพื้น
-    M1AttackSpeed = 0.08,         -- จังหวะกด M1 (วินาที)
+    FlySpeed = 320,               -- ความเร็วบินติดตามเป้าหมาย
+    StickDistance = 1.6,          -- ระยะห่างด้านหลังศัตรู (Studs)
+    HeightOffset = 0.8,           -- ระดับความสูงจากพื้น
+    M1AttackSpeed = 0.035,        -- จังหวะรัว M1
     
-    -- TAUNT & PROVOCATION SETTINGS (ระบบยั่วยุศัตรู)
-    AutoTaunt = true,             -- เปิดใช้งานการพิมพ์ยั่วยุศัตรูในแชท
-    TauntCooldown = 6.0,          -- ระยะห่างการพิมพ์ยั่วยุ (วินาที)
+    -- COMBO ROTATION SETTINGS (หมัด -> ดาบ -> ผล)
+    EnableComboRotation = true,   -- เปิดใช้งานคอมโบสลับ 3 อาวุธ
+    WeaponSwitchDelay = 0.04,     -- ดีเลย์ตอนสลับอาวุธ
+    
+    -- TAUNT SETTINGS
+    AutoTaunt = true,             -- พิมพ์ยั่วยุเปิดสถานะต่อสู้
+    TauntCooldown = 6.0,          -- ระยะห่างการพิมพ์ยั่วยุ
     
     -- NOCLIP
-    PermanentNoClip = true,       -- เปิดใช้งานระบบเดินทะลุกำแพงตลอดเวลา
-    
-    -- SKILL ROTATION
-    UseSkills = true,             -- เปิดใช้งานสกิลหมัด
-    SkillDelay = 0.35,            -- ระยะห่างระหว่างกดแต่ละสกิล
+    PermanentNoClip = true,       -- เดินทะลุกำแพงตลอดเวลา
     
     -- SURVIVAL & RETREAT
     AutoBuso = true,
@@ -107,7 +107,38 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- AUTO CHAT TAUNT & PROVOCATION MODULE (ยั่วยุเปิดสถานะ In-Combat)
+-- WEAPON CONTROLLER (SMART MULTI-WEAPON EQUIPPER)
+-- =========================================================================
+local function EquipWeaponCategory(category)
+    local char = GetChar(LocalPlayer)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local hum = GetHum(char)
+    if not char or not hum then return nil end
+
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if currentTool then
+        local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or (currentTool:GetAttribute("WeaponType") or "")
+        if tType:lower():find(category:lower()) or currentTool.Name:lower():find(category:lower()) then
+            return currentTool
+        end
+    end
+
+    if bp then
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") then
+                local tType = tool.ToolTip ~= "" and tool.ToolTip or (tool:GetAttribute("WeaponType") or "")
+                if tType:lower():find(category:lower()) or tool.Name:lower():find(category:lower()) then
+                    hum:EquipTool(tool)
+                    return tool
+                end
+            end
+        end
+    end
+    return currentTool
+end
+
+-- =========================================================================
+-- AUTO CHAT TAUNT
 -- =========================================================================
 local DefaultChatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
 local SayMessageRequest = DefaultChatEvents and DefaultChatEvents:FindFirstChild("SayMessageRequest")
@@ -116,8 +147,7 @@ local TauntPhrases = {
     "1v1 me bro?",
     "why running ez?",
     "hit me if you can lol",
-    "free bounty here fight back",
-    "ez runner",
+    "free bounty here",
     "oil up lil bro",
     "come at me 6767"
 }
@@ -146,7 +176,7 @@ local function SendTauntMessage(targetPlayer)
 end
 
 -- =========================================================================
--- PERMANENT NOCLIP ENGINE (เดินทะลุกำแพงและสิ่งกีดขวาง 100%)
+-- PERMANENT NOCLIP ENGINE
 -- =========================================================================
 RunService.Stepped:Connect(function()
     if Config.PermanentNoClip or AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
@@ -425,43 +455,7 @@ local function TriggerRaceSkill()
 end
 
 -- =========================================================================
--- WEAPON CONTROLLER (MELEE FOCUS)
--- =========================================================================
-local function EquipMelee()
-    local char = GetChar(LocalPlayer)
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    local hum = GetHum(char)
-    if not char or not hum then return nil end
-
-    local currentTool = char:FindFirstChildOfClass("Tool")
-    if currentTool then
-        local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or currentTool:GetAttribute("WeaponType")
-        if tType == "Melee" or currentTool.ToolTip:find("Melee") then
-            return currentTool
-        end
-    end
-
-    if bp then
-        for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") then
-                local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
-                if tType == "Melee" or tool.ToolTip:find("Melee") then
-                    hum:EquipTool(tool)
-                    return tool
-                end
-            end
-        end
-        local first = bp:FindFirstChildOfClass("Tool")
-        if first then
-            hum:EquipTool(first)
-            return first
-        end
-    end
-    return currentTool
-end
-
--- =========================================================================
--- UNIFIED COMBAT & ATTACK ENGINE (M1 + MELEE SKILLS)
+-- FAST M1 MACHINE GUN (CONTINUOUS DAMAGE STREAM)
 -- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
@@ -489,14 +483,8 @@ local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Mo
 local RegisterAttack = Net and (Net:FindFirstChild("RE/RegisterAttack") or Net:FindFirstChild("RegisterAttack"))
 local RegisterHit = Net and (Net:FindFirstChild("RE/RegisterHit") or Net:FindFirstChild("RegisterHit"))
 
-local MeleeSkills = {
-    { Key = Enum.KeyCode.Z, Hold = 0.10, Cooldown = 3.0, LastUsed = 0 },
-    { Key = Enum.KeyCode.X, Hold = 0.12, Cooldown = 3.5, LastUsed = 0 },
-    { Key = Enum.KeyCode.C, Hold = 0.15, Cooldown = 4.2, LastUsed = 0 },
-}
-
 local comboStep = 1
-local function ExecuteAttackCycle(targetChar, targetRoot)
+local function ExecuteFastM1Tick(targetChar, targetRoot)
     local myChar = GetChar(LocalPlayer)
     local myHum = GetHum(myChar)
     if not myChar or not myHum or myHum.Health <= 0 then return end
@@ -504,31 +492,13 @@ local function ExecuteAttackCycle(targetChar, targetRoot)
     myHum.Sit = false
     myHum.PlatformStand = false
 
-    -- 1. ถือหมัดตลอดเวลา
-    local tool = EquipMelee()
+    local tool = myChar:FindFirstChildOfClass("Tool")
 
-    -- 2. รันสกิลหมัด Z, X, C ร่วมด้วย
-    if Config.UseSkills and targetRoot then
-        local now = tick()
-        for _, skill in ipairs(MeleeSkills) do
-            if now - skill.LastUsed >= skill.Cooldown then
-                skill.LastUsed = now
-                pcall(function()
-                    VirtualInputManager:SendKeyEvent(true, skill.Key, false, game)
-                    task.wait(skill.Hold)
-                    VirtualInputManager:SendKeyEvent(false, skill.Key, false, game)
-                end)
-                task.wait(Config.SkillDelay)
-                break
-            end
-        end
-    end
-
-    -- 3. M1 Hitbox & Cooldown Reset
+    -- Reset Hitbox & Cooldown
     local controller = ResolveCombatController()
     if controller then
         pcall(function()
-            controller.hitboxMagnitude = 60
+            controller.hitboxMagnitude = 75
             controller.timeToNextAttack = 0
             controller.hitAttempts = 0
             controller.attacking = false
@@ -543,7 +513,7 @@ local function ExecuteAttackCycle(targetChar, targetRoot)
         end)
     end
 
-    -- 4. ส่ง Packet การตี & RegisterHit
+    -- Packet Stream
     if RegisterAttack then
         pcall(function() RegisterAttack:FireServer(0) end)
     end
@@ -554,7 +524,6 @@ local function ExecuteAttackCycle(targetChar, targetRoot)
         end)
     end
 
-    -- 5. Tool Activate & Click Emulation
     if tool then
         pcall(function() tool:Activate() end)
     end
@@ -566,7 +535,71 @@ local function ExecuteAttackCycle(targetChar, targetRoot)
     end)
 end
 
--- ลูปคอมแบทอัตโนมัติ
+-- =========================================================================
+-- FULL MULTI-WEAPON COMBO ROTATION (หมัด -> ดาบ -> ผล)
+-- =========================================================================
+local FullComboSequence = {
+    -- PHASE 1: หมัด (MELEE COMBO)
+    { Category = "Melee", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.12, Name = "Melee Z" },
+    { Category = "Melee", Key = Enum.KeyCode.X, Hold = 0.04, Delay = 0.12, Name = "Melee X" },
+    { Category = "Melee", Key = Enum.KeyCode.C, Hold = 0.06, Delay = 0.14, Name = "Melee C" },
+
+    -- PHASE 2: ดาบ (SWORD COMBO)
+    { Category = "Sword", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.12, Name = "Sword Z" },
+    { Category = "Sword", Key = Enum.KeyCode.X, Hold = 0.06, Delay = 0.14, Name = "Sword X" },
+
+    -- PHASE 3: ผลปีศาจ (BLOX FRUIT COMBO)
+    { Category = "Blox Fruit", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.12, Name = "Fruit Z" },
+    { Category = "Blox Fruit", Key = Enum.KeyCode.X, Hold = 0.04, Delay = 0.12, Name = "Fruit X" },
+    { Category = "Blox Fruit", Key = Enum.KeyCode.C, Hold = 0.06, Delay = 0.14, Name = "Fruit C" },
+    { Category = "Blox Fruit", Key = Enum.KeyCode.V, Hold = 0.06, Delay = 0.16, Name = "Fruit V" },
+}
+
+-- เธรดยัดสกิลคอมโบสลับ 3 อาวุธ (หมัด -> ดาบ -> ผล) ต่อเนื่องไม่หยุด
+task.spawn(function()
+    while true do
+        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
+            local targetChar = GetChar(AppState.SelectedPlayer)
+            local targetRoot = GetRoot(targetChar)
+            local myRoot = GetRoot(GetChar(LocalPlayer))
+
+            if targetChar and targetRoot and myRoot and targetChar.Parent then
+                local dist = (targetRoot.Position - myRoot.Position).Magnitude
+                if dist <= 25 and Config.EnableComboRotation then
+                    for _, step in ipairs(FullComboSequence) do
+                        if not AppState.IsHunting or AppState.IsRetreating then break end
+
+                        targetChar = GetChar(AppState.SelectedPlayer)
+                        targetRoot = GetRoot(targetChar)
+                        if not targetChar or not targetRoot or targetChar.Parent == nil then break end
+
+                        -- 1. สลับอาวุธตาม Phase
+                        EquipWeaponCategory(step.Category)
+                        task.wait(Config.WeaponSwitchDelay)
+
+                        -- 2. ล็อคมุมกล้องจ้องเป้าหมาย
+                        pcall(function()
+                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
+                        end)
+
+                        -- 3. กดสกิล
+                        pcall(function()
+                            VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
+                            task.wait(step.Hold)
+                            VirtualInputManager:SendKeyEvent(false, step.Key, false, game)
+                        end)
+                        task.wait(step.Delay)
+                    end
+                else
+                    EquipWeaponCategory("Melee")
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- เธรดสแปมหมัด M1 Machine Gun คู่ขนาน (Zero Delay)
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
@@ -577,10 +610,8 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 20 then
-                    -- ส่งคำยั่วยุเปิดสถานะต่อสู้
-                    SendTauntMessage(AppState.SelectedPlayer)
-                    ExecuteAttackCycle(targetChar, targetRoot)
+                if dist <= 24 then
+                    ExecuteFastM1Tick(targetChar, targetRoot)
                 end
             end
         end
@@ -622,7 +653,7 @@ local function StopHunt(reason)
 end
 
 -- =========================================================================
--- POST-KILL SKY RETREAT (หนีขึ้นฟ้าทันทีที่ฆ่าเสร็จ)
+-- POST-KILL SKY RETREAT
 -- =========================================================================
 local function TriggerSafeRetreat()
     if AppState.IsRetreating then return end
@@ -662,7 +693,7 @@ local function TriggerSafeRetreat()
 end
 
 -- =========================================================================
--- MAIN NAVIGATION & TRACKING LOOP
+-- MAIN DYNAMIC TRACKER LOOP
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if AppState.IsRetreating then return end
@@ -724,32 +755,33 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- คำนวณตำแหน่งประกบหลังศัตรู 1.8 Studs
+    -- คำนวณตำแหน่งเกาะติดหลังเป้าหมาย 1.6 Studs
     local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
     local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
-    local dist = (targetPos - currentPos).Magnitude
+    local diff = targetPos - currentPos
+    local dist = diff.Magnitude
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
-    if dist > 3.0 then
+    local bv = myRoot:FindFirstChild("BountyBV")
+    if dist > 2.0 then
         AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
-        local dir = (targetPos - currentPos).Unit
-        local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 30)
+            bv.Velocity = diff.Unit * math.min(Config.FlySpeed, dist * 32)
         end
     else
-        local bv = myRoot:FindFirstChild("BountyBV")
-        if bv then bv.Velocity = Vector3.zero end
-        
-        -- ล็อคมุมมองและตำแหน่งแนบตัวศัตรู
+        if bv then 
+            bv.Velocity = targetRoot.AssemblyLinearVelocity 
+        end
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Engaging: Melee Strike + Fast M1 (Taunting)..."
+        AppState.CurrentCombatStatus = "Executing Combo Rotation: Melee -> Sword -> Fruit"
+        
+        SendTauntMessage(AppState.SelectedPlayer)
     end
 end)
 
@@ -827,7 +859,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v8.8 (PROVOKE & TAUNT CORE)"
+Header.Text = "  ⚡ BOUNTY GOD v9.0 (MELEE + SWORD + FRUIT)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -835,22 +867,22 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
--- ACTION BUTTONS (TAUNT, NOCLIP, ESP)
-local TauntToggleBtn = Instance.new("TextButton")
-TauntToggleBtn.Size = UDim2.new(0, 80, 0, 24)
-TauntToggleBtn.Position = UDim2.new(1, -260, 0, 7)
-TauntToggleBtn.BackgroundColor3 = Config.AutoTaunt and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
-TauntToggleBtn.Text = Config.AutoTaunt and "💬 TAUNT: ON" or "💬 TAUNT: OFF"
-TauntToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-TauntToggleBtn.Font = Enum.Font.GothamBold
-TauntToggleBtn.TextSize = 10
-TauntToggleBtn.Parent = Header
-Instance.new("UICorner", TauntToggleBtn).CornerRadius = UDim.new(0, 4)
+-- ACTION BUTTONS
+local ComboToggleBtn = Instance.new("TextButton")
+ComboToggleBtn.Size = UDim2.new(0, 85, 0, 24)
+ComboToggleBtn.Position = UDim2.new(1, -265, 0, 7)
+ComboToggleBtn.BackgroundColor3 = Config.EnableComboRotation and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+ComboToggleBtn.Text = Config.EnableComboRotation and "⚔️ COMBO: ON" or "⚔️ COMBO: OFF"
+ComboToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ComboToggleBtn.Font = Enum.Font.GothamBold
+ComboToggleBtn.TextSize = 10
+ComboToggleBtn.Parent = Header
+Instance.new("UICorner", ComboToggleBtn).CornerRadius = UDim.new(0, 4)
 
-TauntToggleBtn.MouseButton1Click:Connect(function()
-    Config.AutoTaunt = not Config.AutoTaunt
-    TauntToggleBtn.Text = Config.AutoTaunt and "💬 TAUNT: ON" or "💬 TAUNT: OFF"
-    TauntToggleBtn.BackgroundColor3 = Config.AutoTaunt and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+ComboToggleBtn.MouseButton1Click:Connect(function()
+    Config.EnableComboRotation = not Config.EnableComboRotation
+    ComboToggleBtn.Text = Config.EnableComboRotation and "⚔️ COMBO: ON" or "⚔️ COMBO: OFF"
+    ComboToggleBtn.BackgroundColor3 = Config.EnableComboRotation and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
 end)
 
 local NoClipBtn = Instance.new("TextButton")
@@ -927,6 +959,8 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
+                -- ฆ่าได้สำเร็จ -> หนีขึ้นฟ้าทันที
+                TriggerSafeRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
                 Stats.Deaths = Stats.Deaths + 1
@@ -1117,11 +1151,11 @@ HuntBtn.MouseButton1Click:Connect(function()
             return
         end
 
-        EquipMelee()
+        EquipWeaponCategory("Melee")
 
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Melee Strike & Taunting)..."
+        StatusLabel.Text = "Status: Engaging Target (Melee + Sword + Fruit Combo)..."
     end
 end)
