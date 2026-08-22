@@ -1,11 +1,12 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.5 (ESP + MAX SKY RETREAT)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.6
 -- Features:
---  1. Real-Time 3D ESP & Wallhack Radar (Name, HP, Distance, Level, Status)
---  2. Auto Max Sky Altitude Orbit (1,500 Studs) Immediately After Every Kill
---  3. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework Hook)
---  4. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
---  5. Auto Buffs (Buso, Ken, Race V3) + Emergency Sky Healing
+--  1. Auto Sky Ascent + Direct Flyback to Starter Island (Safe Hub) on Kill
+--  2. Auto Sea-Detection (Sea 1: Windmill / Sea 2: Cafe / Sea 3: Castle on Sea)
+--  3. Real-Time 3D ESP & Wallhack Radar (Name, HP, Distance, Level, Status)
+--  4. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework Hook)
+--  5. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
+--  6. Auto Buffs (Buso, Ken, Race V3) + Emergency Sky Healing
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -22,6 +23,23 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
+-- STARTER ISLAND COORDINATES BY SEA
+-- =========================================================================
+local StarterIslandLocations = {
+    [2753915549] = Vector3.new(1071, 60, 1426),    -- Sea 1: Pirate Starter / Windmill Island
+    [4442272183] = Vector3.new(-380, 80, 298),      -- Sea 2: Cafe Safe Hub (Kingdom of Rose)
+    [7449423635] = Vector3.new(-5085, 320, -3156),  -- Sea 3: Castle on the Sea Safe Hub
+}
+
+local function GetStarterIslandPos()
+    local placeId = game.PlaceId
+    if StarterIslandLocations[placeId] then
+        return StarterIslandLocations[placeId]
+    end
+    return Vector3.new(1071, 60, 1426)
+end
+
+-- =========================================================================
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
@@ -36,9 +54,9 @@ local Config = {
     EnableESP = true,             -- เปิด/ปิด ระบบ 3D ESP
     ESPTextSize = 11,
     
-    -- SURVIVAL & RETREAT TO MAX SKY
-    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุด (1,500 Studs กันตาย 100%)
-    PostKillSkyDuration = 5.0,    -- ระยะเวลาลอยค้างบนฟ้าหลังฆ่าสำเร็จ (วินาที)
+    -- RETREAT & STARTER ISLAND RETURN
+    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุด (1,500 Studs)
+    AutoReturnToStarter = true,   -- กลับเกาะแรกทันทีหลังฆ่าศัตรูสำเร็จ
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
@@ -557,44 +575,95 @@ local function StopHunt(reason)
 end
 
 -- =========================================================================
--- POST-KILL MAXIMUM SKY RETREAT (ORBIT SHIELD)
+-- POST-KILL MAXIMUM SKY RETREAT + RETURN TO STARTER ISLAND
 -- =========================================================================
 local function TriggerMaxSkyRetreat()
     if AppState.IsRetreating then return end
     AppState.IsHunting = false
     AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = string.format("TARGET ELIMINATED! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
+    AppState.CurrentCombatStatus = "KILL CONFIRMED! Ascending to Sky & Navigating to Starter Island..."
 
     task.spawn(function()
-        local start = tick()
-        while (tick() - start < Config.PostKillSkyDuration) do
-            local myChar = GetChar(LocalPlayer)
-            local myRoot = GetRoot(myChar)
-            local myHum = GetHum(myChar)
+        local starterPos = GetStarterIslandPos()
+        local skyAltitude = Config.MaxSkyAltitude
 
-            if myRoot and myHum and myHum.Health > 0 then
+        -- Phase 1: พุ่งตรงขึ้นสู่ท้องฟ้าสูงสุด (1,500 Studs)
+        local myChar = GetChar(LocalPlayer)
+        local myRoot = GetRoot(myChar)
+        if myRoot then
+            local startTime = tick()
+            while (tick() - startTime < 2.5) do
+                myChar = GetChar(LocalPlayer)
+                myRoot = GetRoot(myChar)
+                if not myRoot then break end
+                
                 ApplyPhysics(myRoot)
                 EnsureKen()
                 EnsureBuso()
                 
-                local maxSkyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
-                local diff = maxSkyPos - myRoot.Position
+                local upPos = Vector3.new(myRoot.Position.X, skyAltitude, myRoot.Position.Z)
+                local diff = upPos - myRoot.Position
                 local bv = myRoot:FindFirstChild("BountyBV")
                 if bv then
-                    bv.Velocity = diff.Magnitude > 15 and diff.Unit * (Config.FlySpeed + 100) or Vector3.zero
+                    bv.Velocity = diff.Magnitude > 20 and diff.Unit * (Config.FlySpeed + 150) or Vector3.zero
                 end
+                task.wait(0.05)
+            end
+        end
+
+        -- Phase 2: บินบนฟ้าชั้นบรรยากาศตรงกลับเกาะแรก (Starter Safe Island)
+        local skyStarterPos = Vector3.new(starterPos.X, skyAltitude, starterPos.Z)
+        while Config.AutoReturnToStarter do
+            myChar = GetChar(LocalPlayer)
+            myRoot = GetRoot(myChar)
+            local myHum = GetHum(myChar)
+            if not myChar or not myRoot or not myHum or myHum.Health <= 0 then break end
+
+            ApplyPhysics(myRoot)
+            EnsureKen()
+            EnsureBuso()
+
+            local horizontalDist = (Vector3.new(myRoot.Position.X, 0, myRoot.Position.Z) - Vector3.new(starterPos.X, 0, starterPos.Z)).Magnitude
+            AppState.CurrentCombatStatus = string.format("Returning to Starter Island (%dm)...", math.floor(horizontalDist))
+
+            if horizontalDist <= 35 then
+                break
+            end
+
+            local dir = (skyStarterPos - myRoot.Position).Unit
+            local bv = myRoot:FindFirstChild("BountyBV")
+            if bv then
+                bv.Velocity = dir * (Config.FlySpeed + 120)
             end
             task.wait(0.05)
         end
 
-        local myChar = GetChar(LocalPlayer)
-        local myRoot = GetRoot(myChar)
+        -- Phase 3: ค่อยๆ ร่อนลงสู่พื้นที่ปลอดภัยของเกาะแรก
+        AppState.CurrentCombatStatus = "Descending to Starter Safe Zone..."
+        local descendStart = tick()
+        while (tick() - descendStart < 4.0) do
+            myChar = GetChar(LocalPlayer)
+            myRoot = GetRoot(myChar)
+            if not myRoot then break end
+
+            local diff = starterPos - myRoot.Position
+            if diff.Magnitude <= 10 then break end
+
+            local bv = myRoot:FindFirstChild("BountyBV")
+            if bv then
+                bv.Velocity = diff.Unit * math.min(Config.FlySpeed, diff.Magnitude * 15)
+            end
+            task.wait(0.05)
+        end
+
+        myChar = GetChar(LocalPlayer)
+        myRoot = GetRoot(myChar)
         local bv = myRoot and myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
 
         AppState.IsRetreating = false
         AppState.SelectedPlayer = nil
-        StopHunt("Elimination Safe (Ready for Next Target)")
+        StopHunt("Safely Returned to Starter Island")
     end)
 end
 
@@ -642,7 +711,7 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย -> ลอยขึ้นฟ้าสูงสุดทันที
+    -- ตรวจสอบการตายของเป้าหมาย -> พุ่งขึ้นฟ้าและบินกลับเกาะแรกทันที
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         TriggerMaxSkyRetreat()
         return
@@ -764,7 +833,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.5 (ESP + MAX SKY RETREAT)"
+Header.Text = "  ⚡ BOUNTY GOD v7.6 (ISLAND RETURN + ESP)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -829,7 +898,7 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                -- ฆ่าได้สำเร็จ -> ลอยขึ้นฟ้าสูงสุดทันที
+                -- ฆ่าได้สำเร็จ -> ลอยขึ้นฟ้าสูงสุดและบินกลับเกาะแรก
                 TriggerMaxSkyRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
