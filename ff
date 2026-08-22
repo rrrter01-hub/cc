@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.0 (APEX PREDATOR)
--- Upgrades:
---  1. Predictive Vector Stick & Velocity-Compensated CFrame (Anti-Lag/Anti-Dash)
---  2. Dynamic Skill Rotation Chain (Melee -> Sword -> Fruit -> Gun -> M1 Burst)
---  3. Auto Target Filter & Smart Priority (Lowest HP / Closest / High Bounty)
---  4. Auto Race V4 & V3 Activation + Auto Buso/Ken Loop
---  5. Anti-Stuck Detection & Smooth NoClip Engine
---  6. Auto Server Hop when no valid PvP targets remain
---  7. Real-Time 3D ESP Radar + High-Performance UI Dashboard
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.5 (ULTRA INSTINCT EDITION)
+-- Upgrades & New Evasion Systems:
+--  1. Ultra Instinct Attack Sniffer (Animation & Cast Detector -> Instant I-Frame Blink)
+--  2. Dynamic 3D Kinetic Weaving (Sine/Cosine Orbit Strafe to break enemy aimbot/skills)
+--  3. Auto Soru / Flash Step & Q-Dash Micro-Evasion Matrix
+--  4. Dual Haki Watchdog (Continuous Buso & Ken Observation Haki Re-enabler)
+--  5. Anti-One-Shot Combo Air Flank (Instant Height Shift when enemy casts heavy CC)
+--  6. Predictive Vector Stick + Auto Skill Burst Chain & Fast Attack Hook
+--  7. Auto Target Priority, Sky Retreat Orbit & 3D ESP Radar
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -26,40 +26,42 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- MASTER CONFIGURATION
+-- CONFIGURATION
 -- =========================================================================
 local Config = {
-    -- HUNTING MODES
-    AutoTarget = true,            -- ค้นหาและเปลี่ยนเป้าหมายที่คุ้มค่าที่สุดอัตโนมัติ
-    AutoServerHop = false,        -- สลับเซิร์ฟเวอร์อัตโนมัติเมื่อไม่มีเป้าหมายให้ล่า
-    TargetPriority = "LowestHP",  -- "LowestHP", "Closest", "HighestBounty"
+    -- EVASION & REACTION MATRIX (ULTRA INSTINCT)
+    EnableAutoDodge = true,        -- เปิดระบบหลบการโจมตีอัจฉริยะ
+    DodgeMode = "QuantumWeave",    -- "QuantumWeave" (โยกหลบ 3 มิติ), "FlashStep" (วาร์ปหลบหลัง)
+    WeaveRadius = 2.4,             -- รัศมีการโยกหลบหมุนวนรอบเป้าหมาย
+    WeaveSpeed = 8.5,              -- ความเร็วในการส่ายตำแหน่งหลบสกิล
+    ReactiveBlinkDist = 14,        -- ระยะดีดตัวหลบทันทีเมื่อศัตรูกดสกิล/อนิเมชันโจมตี
+    AutoDashIFrame = true,         -- ใช้ Q-Dash / Soru เพื่อเอาสถานะอมตะ (I-Frames)
     
-    -- FLIGHT & MOVEMENT
-    FlySpeed = 350,
-    StickDistance = 1.0,          -- ระยะเกาะหลังเป้าหมาย (Studs)
-    HeightOffset = 0.5,           -- ความสูงจากเป้าหมาย
-    PredictionMultiplier = 0.12,  -- ระบบคำนวณทิศทางการเคลื่อนที่ของศัตรูล่วงหน้า
-    AntiStuckThreshold = 2.0,     -- รีเซ็ตความเร็วเมื่อติดบั๊กเกินกำหนด (วินาที)
+    -- HAKI SYSTEMS
+    AutoBuso = true,               -- ฮาคิเกราะตลอดเวลา
+    AutoKen = true,                -- ฮาคิสังเกต (เปิดซ้ำอัตโนมัติทันทีที่คูลดาวน์เสร็จ)
+    AutoRaceV3 = true,             -- สกิลเผ่า V3
+    AutoRaceV4 = true,             -- สกิลแปลงร่าง V4
     
     -- COMBAT & WEAPONS
-    M1AttackSpeed = 0.03,         -- สปีด M1 รัว
-    HitboxSize = 95,              -- ขนาดฮิตบ็อกซ์โจมตี
-    EnableSkillCombo = true,      -- คอมโบสกิล Z, X, C, V อัตโนมัติ
-    SkillDelay = 0.15,            -- ระยะห่างระหว่างสกิล
+    FlySpeed = 360,
+    StickDistance = 1.2,
+    HeightOffset = 0.6,
+    PredictionMultiplier = 0.14,
+    M1AttackSpeed = 0.03,
+    HitboxSize = 95,
+    EnableSkillCombo = true,
+    SkillDelay = 0.12,
     WeaponOrder = { "Melee", "Sword", "Blox Fruit", "Gun" },
     
-    -- SURVIVAL & RETREAT
-    MaxSkyAltitude = 1600,        -- บินขึ้นฟ้าสูงสุดเมื่อจบไฟต์หรือเลือดต่ำ
-    PostKillSkyDuration = 4.5,    -- เวลาลอยค้างบนฟ้าหลังสังหาร (วินาที)
+    -- TARGETING & RETREAT
+    AutoTarget = true,
+    TargetPriority = "LowestHP",   -- "LowestHP", "Closest", "HighestBounty"
+    MaxSkyAltitude = 1600,
+    PostKillSkyDuration = 4.5,
     EmergencyEscape = true,
-    EmergencyHPThreshold = 35,    -- % เลือดที่ต้องหนีขึ้นฟ้า
-    RecoveryHPThreshold = 90,     -- % เลือดที่ฟื้นฟูแล้วพร้อมสู้ต่อ
-    
-    -- BUFFS & RACE
-    AutoBuso = true,
-    AutoKen = true,
-    AutoRaceV3 = true,
-    AutoRaceV4 = true,
+    EmergencyHPThreshold = 35,
+    RecoveryHPThreshold = 90,
     
     -- 3D ESP
     EnableESP = true,
@@ -73,7 +75,7 @@ local Stats = {
     BountyLost = 0,
     Kills = 0,
     Deaths = 0,
-    HuntStartTime = tick()
+    DodgedAttacks = 0
 }
 
 local AppState = {
@@ -83,13 +85,13 @@ local AppState = {
     IsHealingInSky = false,
     IsRetreating = false,
     CurrentCombatStatus = "Idle",
-    LastTargetPos = Vector3.zero,
-    StuckTimer = 0,
-    SkillIndex = 1
+    OrbitAngle = 0,
+    LastDodgeTick = 0,
+    TargetAnimTrack = nil
 }
 
 -- =========================================================================
--- UTILITY HELPERS
+-- UTILITIES
 -- =========================================================================
 local function GetChar(p) return p and p.Character end
 local function GetRoot(c) return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")) end
@@ -118,7 +120,127 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- TARGET EVALUATOR & SMART PRIORITY
+-- ADVANCED HAKI CONTROLLER (PERSISTENT WATCHDOG)
+-- =========================================================================
+local function EnsureBuso()
+    if not Config.AutoBuso then return end
+    local char = GetChar(LocalPlayer)
+    if not char then return end
+    if not char:FindFirstChild("HasBuso") then
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then pcall(function() rem:InvokeServer("Buso") end) end
+    end
+end
+
+local lastKenTry = 0
+local function EnsureKen()
+    if not Config.AutoKen then return end
+    if tick() - lastKenTry < 0.8 then return end
+    lastKenTry = tick()
+
+    local char = GetChar(LocalPlayer)
+    if not char then return end
+
+    local hasKen = char:FindFirstChild("KenHaki") 
+        or char:FindFirstChild("Observation") 
+        or char:FindFirstChild("KenTalk")
+        or LocalPlayer:GetAttribute("Observation") == true
+
+    if not hasKen then
+        local remF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if remF then pcall(function() remF:InvokeServer("Ken", true) end) end
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.02)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
+    end
+end
+
+local lastRaceV3Tick = 0
+local function TriggerRaceV3()
+    if not Config.AutoRaceV3 then return end
+    if tick() - lastRaceV3Tick < 12 then return end
+    lastRaceV3Tick = tick()
+
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.T, false, game)
+    end)
+    pcall(function()
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then rem:InvokeServer("ActivateAbility") end
+    end)
+end
+
+local lastRaceV4Tick = 0
+local function TriggerRaceV4()
+    if not Config.AutoRaceV4 then return end
+    if tick() - lastRaceV4Tick < 4 then return end
+    lastRaceV4Tick = tick()
+
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Y, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Y, false, game)
+    end)
+end
+
+-- =========================================================================
+-- ULTRA INSTINCT EVASION & REACTION MATRIX
+-- =========================================================================
+local function PerformEvasiveDash(direction)
+    if not Config.AutoDashIFrame then return end
+    pcall(function()
+        -- ส่งสัญญาณ Q-Dash เพื่อดึง I-Frames และ Soru
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+    end)
+end
+
+local function HookTargetAnimationSniffer(targetPlayer)
+    if AppState.TargetAnimTrack then
+        AppState.TargetAnimTrack:Disconnect()
+        AppState.TargetAnimTrack = nil
+    end
+
+    local targetChar = GetChar(targetPlayer)
+    local targetHum = GetHum(targetChar)
+    if not targetHum then return end
+
+    local animator = targetHum:FindFirstChildOfClass("Animator") or targetHum
+    AppState.TargetAnimTrack = animator.AnimationPlayed:Connect(function(animTrack)
+        if not Config.EnableAutoDodge or not AppState.IsHunting then return end
+        local animName = animTrack.Animation and animTrack.Animation.Name:lower() or ""
+
+        -- กรองเฉพาะอนิเมชันที่เป็นการโจมตีหรือร่ายสกิล
+        if animName:find("attack") or animName:find("slash") or animName:find("cast") or animName:find("skill") or animName:find("punch") or animName:find("shoot") then
+            if tick() - AppState.LastDodgeTick > 0.45 then
+                AppState.LastDodgeTick = tick()
+                Stats.DodgedAttacks = Stats.DodgedAttacks + 1
+
+                local myChar = GetChar(LocalPlayer)
+                local myRoot = GetRoot(myChar)
+                local targetRoot = GetRoot(targetChar)
+
+                if myRoot and targetRoot then
+                    -- 1. ดีดตัวออกด้านข้างและขึ้นบนทันที (Blink Flank)
+                    local flankOffset = (targetRoot.CFrame.RightVector * (math.random() > 0.5 and 8 or -8)) + Vector3.new(0, 7, 0)
+                    myRoot.CFrame = CFrame.lookAt(targetRoot.Position + flankOffset, targetRoot.Position)
+                    
+                    -- 2. รัน I-Frame Dash
+                    PerformEvasiveDash()
+                    EnsureKen()
+                end
+            end
+        end
+    end)
+end
+
+-- =========================================================================
+-- TARGET EVALUATION & PRIORITY
 -- =========================================================================
 local function CheckTargetStatus(player)
     local st = {
@@ -227,87 +349,7 @@ local function FindBestTarget()
 end
 
 -- =========================================================================
--- AUTO SERVER HOP (WHEN SERVER CLEARED)
--- =========================================================================
-local function ServerHop()
-    AppState.CurrentCombatStatus = "Searching new server..."
-    pcall(function()
-        local placeId = game.PlaceId
-        local serversUrl = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
-        local serverData = game:HttpGet(serversUrl)
-        local parsed = HttpService:JSONDecode(serverData)
-        
-        if parsed and parsed.data then
-            for _, s in ipairs(parsed.data) do
-                if s.playing < s.maxPlayers and s.id ~= game.JobId then
-                    TeleportService:TeleportToPlaceInstance(placeId, s.id, LocalPlayer)
-                    break
-                end
-            end
-        end
-    end)
-end
-
--- =========================================================================
--- BUFFS, HAKI & RACE AWAKENING (V3 / V4)
--- =========================================================================
-local function EnsureBuso()
-    if not Config.AutoBuso then return end
-    local char = GetChar(LocalPlayer)
-    if not char then return end
-    if not char:FindFirstChild("HasBuso") then
-        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if rem then pcall(function() rem:InvokeServer("Buso") end) end
-    end
-end
-
-local function EnsureKen()
-    if not Config.AutoKen then return end
-    local char = GetChar(LocalPlayer)
-    if not char then return end
-    if not char:FindFirstChild("KenHaki") and not char:FindFirstChild("Observation") then
-        local remF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if remF then pcall(function() remF:InvokeServer("Ken", true) end) end
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait(0.02)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-        end)
-    end
-end
-
-local lastRaceV3Tick = 0
-local function TriggerRaceV3()
-    if not Config.AutoRaceV3 then return end
-    if tick() - lastRaceV3Tick < 12 then return end
-    lastRaceV3Tick = tick()
-
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.T, false, game)
-        task.wait(0.02)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.T, false, game)
-    end)
-    pcall(function()
-        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if rem then rem:InvokeServer("ActivateAbility") end
-    end)
-end
-
-local lastRaceV4Tick = 0
-local function TriggerRaceV4()
-    if not Config.AutoRaceV4 then return end
-    if tick() - lastRaceV4Tick < 5 then return end
-    lastRaceV4Tick = tick()
-
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Y, false, game)
-        task.wait(0.02)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Y, false, game)
-    end)
-end
-
--- =========================================================================
--- WEAPON CONTROLLER & INVENTORY RESOLVER
+-- WEAPON CONTROLLER & COMBAT FRAMEWORK
 -- =========================================================================
 local function EquipWeapon(weaponType)
     local char = GetChar(LocalPlayer)
@@ -337,17 +379,11 @@ local function EquipWeapon(weaponType)
     return currentTool
 end
 
--- =========================================================================
--- COMBAT FRAMEWORK HOOK, PACKET BURST & SKILL ROTATION
--- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
 
 local function ResolveCombatController()
-    if CombatController and typeof(CombatController) == "table" then
-        return CombatController
-    end
-
+    if CombatController and typeof(CombatController) == "table" then return CombatController end
     pcall(function()
         local ps = LocalPlayer:FindFirstChild("PlayerScripts")
         if not ps then return end
@@ -388,7 +424,6 @@ local function FireFastAttack()
     local targetRoot = targetChar and GetRoot(targetChar)
     local targetHum = targetChar and GetHum(targetChar)
 
-    -- 1. Hook Active Controller Hitbox
     local controller = ResolveCombatController()
     if controller then
         pcall(function()
@@ -397,15 +432,12 @@ local function FireFastAttack()
             controller.hitAttempts = 0
             controller.attacking = false
             controller.blocking = false
-            
             comboCounter = (comboCounter % 4) + 1
             controller.increment = comboCounter
-
             if controller.attack then controller:attack() end
         end)
     end
 
-    -- 2. Direct Network Packet Fire
     if RegisterAttack then pcall(function() RegisterAttack:FireServer(0) end) end
     if RegisterHit and targetRoot and targetHum and targetHum.Health > 0 then
         pcall(function()
@@ -413,7 +445,6 @@ local function FireFastAttack()
         end)
     end
 
-    -- 3. Click Emulation
     pcall(function()
         VirtualUser:CaptureController()
         VirtualUser:Button1Down(Vector2.new(0, 0))
@@ -425,7 +456,7 @@ local function FireFastAttack()
     end)
 end
 
--- ระบบคอมโบสกิล Z, X, C, V สลับอาวุธอัตโนมัติ
+-- สลับคอมโบสกิล Z, X, C, V
 local skillKeys = { Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V }
 local function ExecuteSkillCombo()
     if not Config.EnableSkillCombo then return end
@@ -438,12 +469,10 @@ local function ExecuteSkillCombo()
         if tool then
             for _, key in ipairs(skillKeys) do
                 if not AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then break end
-                
-                -- เล็งเป้าหมายเข้าหากลางตัวศัตรู
                 pcall(function()
                     Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
                     VirtualInputManager:SendKeyEvent(true, key, false, game)
-                    task.wait(0.04)
+                    task.wait(0.03)
                     VirtualInputManager:SendKeyEvent(false, key, false, game)
                 end)
                 task.wait(Config.SkillDelay)
@@ -462,9 +491,7 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 28 then
-                    FireFastAttack()
-                end
+                if dist <= 28 then FireFastAttack() end
             end
         end
         task.wait(Config.M1AttackSpeed)
@@ -481,7 +508,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- PHYSICS, PREDICTIVE VECTOR ENGINE & NOCLIP
+-- PHYSICS & NOCLIP
 -- =========================================================================
 local function ApplyPhysics(myRoot)
     if not myRoot then return end
@@ -521,16 +548,20 @@ local function StopHunt(reason)
     AppState.CurrentCombatStatus = reason or "Idle"
     local myChar = GetChar(LocalPlayer)
     RemovePhysics(GetRoot(myChar))
+    if AppState.TargetAnimTrack then
+        AppState.TargetAnimTrack:Disconnect()
+        AppState.TargetAnimTrack = nil
+    end
 end
 
 -- =========================================================================
--- POST-KILL MAXIMUM SKY RETREAT (ORBIT SHIELD)
+-- MAXIMUM SKY RETREAT
 -- =========================================================================
 local function TriggerMaxSkyRetreat()
     if AppState.IsRetreating then return end
     AppState.IsHunting = false
     AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = string.format("KILL SECURED! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
+    AppState.CurrentCombatStatus = string.format("KILL CONFIRMED! Sky Ascend (%dm)...", Config.MaxSkyAltitude)
 
     task.spawn(function()
         local start = tick()
@@ -562,24 +593,23 @@ local function TriggerMaxSkyRetreat()
         AppState.IsRetreating = false
         AppState.SelectedPlayer = nil
 
-        -- ตรวจสอบ Auto Target ถัดไป
         if Config.AutoTarget then
             local nextTarget = FindBestTarget()
             if nextTarget then
                 AppState.SelectedPlayer = nextTarget
                 AppState.IsHunting = true
-                AppState.CurrentCombatStatus = "Auto-Locked: " .. nextTarget.DisplayName
+                HookTargetAnimationSniffer(nextTarget)
             else
-                if Config.AutoServerHop then ServerHop() else StopHunt("No Valid Targets") end
+                StopHunt("All Targets Cleared")
             end
         else
-            StopHunt("Target Eliminated (Ready)")
+            StopHunt("Target Eliminated")
         end
     end)
 end
 
 -- =========================================================================
--- MAIN NAVIGATION, PREDICTION & COMBAT LOOP
+-- HEARTBEAT NAVIGATION & 3D QUANTUM WEAVE ENGINE
 -- =========================================================================
 RunService.Heartbeat:Connect(function(dt)
     if AppState.IsRetreating then return end
@@ -622,19 +652,18 @@ RunService.Heartbeat:Connect(function(dt)
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         TriggerMaxSkyRetreat()
         return
     end
 
-    -- ตรวจสอบ SafeZone / PvP
     local st = CheckTargetStatus(AppState.SelectedPlayer)
     if not st.CanAttack then
         if Config.AutoTarget then
             local nextTarget = FindBestTarget()
             if nextTarget then
                 AppState.SelectedPlayer = nextTarget
+                HookTargetAnimationSniffer(nextTarget)
                 return
             end
         end
@@ -650,28 +679,23 @@ RunService.Heartbeat:Connect(function(dt)
     TriggerRaceV4()
     ApplyPhysics(myRoot)
 
-    -- คำนวณ Predictive Velocity Vector (ดักหน้าเวลาเป้าหมายแดชหรือพุ่งตัว)
+    -- คำนวณ Predictive Velocity Vector
     local targetVelocity = targetRoot.AssemblyLinearVelocity or targetRoot.Velocity or Vector3.zero
     local predictedPos = targetRoot.Position + (targetVelocity * Config.PredictionMultiplier)
     local predictedCFrame = CFrame.new(predictedPos, predictedPos + targetRoot.CFrame.LookVector)
 
-    -- คำนวณตำแหน่งประกบหลัง
-    local stickCFrame = predictedCFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
+    -- ระบบหลบแบบ Quantum Weave (ส่ายวนรอบตัวศัตรูเพื่อไม่ให้โดนสกิลช็อตตรงๆ)
+    local weaveX, weaveY = 0, 0
+    if Config.EnableAutoDodge and Config.DodgeMode == "QuantumWeave" then
+        AppState.OrbitAngle = AppState.OrbitAngle + (Config.WeaveSpeed * dt)
+        weaveX = math.sin(AppState.OrbitAngle) * Config.WeaveRadius
+        weaveY = math.cos(AppState.OrbitAngle * 1.5) * 0.75
+    end
+
+    local stickCFrame = predictedCFrame * CFrame.new(weaveX, Config.HeightOffset + weaveY, Config.StickDistance)
     local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
     local dist = (targetPos - currentPos).Magnitude
-
-    -- Anti-Stuck Detection
-    if (currentPos - AppState.LastTargetPos).Magnitude < 0.3 and dist > 5 then
-        AppState.StuckTimer = AppState.StuckTimer + dt
-        if AppState.StuckTimer > Config.AntiStuckThreshold then
-            myRoot.CFrame = CFrame.new(targetPos + Vector3.new(0, 5, 0))
-            AppState.StuckTimer = 0
-        end
-    else
-        AppState.StuckTimer = 0
-    end
-    AppState.LastTargetPos = currentPos
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
@@ -691,15 +715,15 @@ RunService.Heartbeat:Connect(function(dt)
         
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Apex Lock: Executing Combo..."
+        AppState.CurrentCombatStatus = "Ultra Instinct: Evading & Striking..."
     end
 end)
 
 -- =========================================================================
--- 3D ESP RADAR SYSTEM
+-- 3D ESP RADAR
 -- =========================================================================
 local ESPFolder = Instance.new("Folder")
-ESPFolder.Name = "BountyApex_ESP"
+ESPFolder.Name = "BountyApexUI_ESP"
 ESPFolder.Parent = (gethui and gethui()) or CoreGui
 
 local ESPObjects = {}
@@ -814,10 +838,10 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- =========================================================================
--- MODERN GUI DASHBOARD (APEX INTERFACE)
+-- GUI DASHBOARD
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BountyGodUniversal_Apex"
+ScreenGui.Name = "BountyGod_UltraInstinct"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
@@ -861,8 +885,8 @@ end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.84, 0) or UDim2.new(0, 600, 0, 500)
-MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.08, 0) or UDim2.new(0.5, -300, 0.5, -250)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.86, 0) or UDim2.new(0, 610, 0, 510)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.07, 0) or UDim2.new(0.5, -305, 0.5, -255)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -887,7 +911,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 40)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v8.0 (APEX PREDATOR)"
+Header.Text = "  ⚡ BOUNTY GOD v8.5 (ULTRA INSTINCT)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -895,21 +919,21 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
-local AutoTargetBtn = Instance.new("TextButton")
-AutoTargetBtn.Size = UDim2.new(0, 95, 0, 24)
-AutoTargetBtn.Position = UDim2.new(1, -200, 0, 8)
-AutoTargetBtn.BackgroundColor3 = Config.AutoTarget and Color3.fromRGB(0, 120, 215) or Color3.fromRGB(70, 75, 85)
-AutoTargetBtn.Text = Config.AutoTarget and "AUTO: ON" or "AUTO: OFF"
-AutoTargetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-AutoTargetBtn.Font = Enum.Font.GothamBold
-AutoTargetBtn.TextSize = 10
-AutoTargetBtn.Parent = Header
-Instance.new("UICorner", AutoTargetBtn).CornerRadius = UDim.new(0, 4)
+local DodgeToggleBtn = Instance.new("TextButton")
+DodgeToggleBtn.Size = UDim2.new(0, 95, 0, 24)
+DodgeToggleBtn.Position = UDim2.new(1, -200, 0, 8)
+DodgeToggleBtn.BackgroundColor3 = Config.EnableAutoDodge and Color3.fromRGB(138, 43, 226) or Color3.fromRGB(70, 75, 85)
+DodgeToggleBtn.Text = Config.EnableAutoDodge and "DODGE: ON" or "DODGE: OFF"
+DodgeToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+DodgeToggleBtn.Font = Enum.Font.GothamBold
+DodgeToggleBtn.TextSize = 10
+DodgeToggleBtn.Parent = Header
+Instance.new("UICorner", DodgeToggleBtn).CornerRadius = UDim.new(0, 4)
 
-AutoTargetBtn.MouseButton1Click:Connect(function()
-    Config.AutoTarget = not Config.AutoTarget
-    AutoTargetBtn.Text = Config.AutoTarget and "AUTO: ON" or "AUTO: OFF"
-    AutoTargetBtn.BackgroundColor3 = Config.AutoTarget and Color3.fromRGB(0, 120, 215) or Color3.fromRGB(70, 75, 85)
+DodgeToggleBtn.MouseButton1Click:Connect(function()
+    Config.EnableAutoDodge = not Config.EnableAutoDodge
+    DodgeToggleBtn.Text = Config.EnableAutoDodge and "DODGE: ON" or "DODGE: OFF"
+    DodgeToggleBtn.BackgroundColor3 = Config.EnableAutoDodge and Color3.fromRGB(138, 43, 226) or Color3.fromRGB(70, 75, 85)
 end)
 
 local ESPToggleBtn = Instance.new("TextButton")
@@ -930,7 +954,7 @@ ESPToggleBtn.MouseButton1Click:Connect(function()
 end)
 
 local StatsCard = Instance.new("Frame")
-StatsCard.Size = UDim2.new(1, -16, 0, 62)
+StatsCard.Size = UDim2.new(1, -16, 0, 64)
 StatsCard.Position = UDim2.new(0, 8, 0, 46)
 StatsCard.BackgroundColor3 = Color3.fromRGB(24, 29, 42)
 StatsCard.Parent = MainFrame
@@ -951,9 +975,9 @@ local function UpdateStatsDisplay()
     local net = Stats.BountyGained - Stats.BountyLost
     local netColor = net >= 0 and "#00FF7F" or "#FF4D4D"
     StatText.Text = string.format(
-        "<b>Bounty:</b> %s | <b>K/D:</b> <font color='#00FF7F'>%d</font>/<font color='#FF4D4D'>%d</font><br/>" ..
+        "<b>Bounty:</b> %s | <b>K/D:</b> <font color='#00FF7F'>%d</font>/<font color='#FF4D4D'>%d</font> | <b>Dodges:</b> <font color='#A855F7'>%d</font><br/>" ..
         "<b>Gained:</b> <font color='#00FF7F'>+%s</font> | <b>Lost:</b> <font color='#FF4D4D'>-%s</font> | <b>Net:</b> <font color='%s'>%+d</font>",
-        tostring(Stats.CurrentBounty), Stats.Kills, Stats.Deaths,
+        tostring(Stats.CurrentBounty), Stats.Kills, Stats.Deaths, Stats.DodgedAttacks,
         tostring(Stats.BountyGained), tostring(Stats.BountyLost),
         netColor, net
     )
@@ -983,8 +1007,8 @@ SetupBountyListener()
 UpdateStatsDisplay()
 
 local ScrollList = Instance.new("ScrollingFrame")
-ScrollList.Size = UDim2.new(1, -16, 1, -185)
-ScrollList.Position = UDim2.new(0, 8, 0, 114)
+ScrollList.Size = UDim2.new(1, -16, 1, -188)
+ScrollList.Position = UDim2.new(0, 8, 0, 116)
 ScrollList.BackgroundColor3 = Color3.fromRGB(11, 13, 18)
 ScrollList.ScrollBarThickness = IsMobile and 6 or 4
 ScrollList.Parent = MainFrame
@@ -1122,6 +1146,7 @@ local function RenderRadarRows()
 
                 AppState.SelectedPlayer = player
                 StatusLabel.Text = string.format("Target: %s (Lv.%d | Ready)", player.DisplayName, st.Level)
+                HookTargetAnimationSniffer(player)
                 RenderRadarRows()
             end)
         end
@@ -1136,6 +1161,7 @@ task.spawn(function()
         else
             StatusLabel.Text = "Status: " .. AppState.CurrentCombatStatus
         end
+        UpdateStatsDisplay()
         task.wait(1.5)
     end
 end)
@@ -1152,7 +1178,7 @@ HuntBtn.MouseButton1Click:Connect(function()
         end
 
         if not AppState.SelectedPlayer then
-            StatusLabel.Text = "Error: No valid target found!"
+            StatusLabel.Text = "Error: No target available!"
             return
         end
 
@@ -1165,6 +1191,7 @@ HuntBtn.MouseButton1Click:Connect(function()
         end
 
         AppState.IsHunting = true
+        HookTargetAnimationSniffer(AppState.SelectedPlayer)
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
         StatusLabel.Text = "Status: Engaging Target..."
