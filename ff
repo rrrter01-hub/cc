@@ -1,12 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.4 (TRUE ONE-SHOT GOD)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.5 (CLEAN & STABLE)
 -- Features:
---  1. Nape Blindspot Glue (เกาะติดท้ายทอยมุมอับสายตา 2.5 Studs ศัตรูตีสวนไม่โดน 100%)
---  2. True Ken-Break One-Shot Combo (Melee C -> Sword ZX -> Melee ZX -> Gun/Fruit Burst)
---  3. Quad-Packet M1 Multi-Strike (เร่งดาเมจ M1 4 เท่า ละลายเลือดใน 1.8 วินาที)
---  4. Auto Ken Haki / Buso / Race V3 Permanent Uptime
---  5. Immediate Sky Escape & Anti-Rollback Smooth Return on Kill
---  6. Real-Time 3D Billboard ESP & Target Radar
+--  1. Clean Melee Attack Core (M1 Fast Attack + Auto Skills Z, X, C)
+--  2. Stable Overlapped Stick Position (ประกบหลัง 1.2 Studs เสถียร 100%)
+--  3. Safe Sky Retreat (ลอยขึ้นฟ้าปลอดภัยหลังฆ่าเสร็จ)
+--  4. Auto Buffs (Buso Haki, Ken Haki, Race V3)
+--  5. Real-Time 3D Billboard ESP & Radar Dashboard
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -23,58 +22,31 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- COORDINATES BY SEA
--- =========================================================================
-local StarterLocations = {
-    [2753915549] = Vector3.new(1071, 60, 1426),    -- Sea 1: Pirate Starter / Windmill
-    [4442272183] = Vector3.new(-380, 80, 298),      -- Sea 2: Starter / Kingdom of Rose
-    [7449423635] = Vector3.new(-5085, 320, -3156),  -- Sea 3: Castle on the Sea Hub
-}
-
-local CafeLocations = {
-    [2753915549] = Vector3.new(1071, 60, 1426),    -- Sea 1: Windmill Safe Zone
-    [4442272183] = Vector3.new(-380, 77, 255),     -- Sea 2: Cafe Safe Interior
-    [7449423635] = Vector3.new(-12463, 375, -7550), -- Sea 3: Mansion Safe Zone
-}
-
-local function GetStarterIslandPos()
-    return StarterLocations[game.PlaceId] or Vector3.new(1071, 60, 1426)
-end
-
-local function GetCafePos()
-    return CafeLocations[game.PlaceId] or Vector3.new(-380, 77, 255)
-end
-
--- =========================================================================
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    CombatFlySpeed = 350,         -- ความเร็วพุ่งเข้าหาเป้าหมาย
-    SkyEscapeAltitude = 750,      -- ความสูงลอยตัวหนีขึ้นฟ้า (Studs)
-    SafeReturnSpeed = 140,        -- ความเร็วบินกลับเกาะแรก (กันโรลแบ็ค 100%)
+    FlySpeed = 280,
+    StickDistance = 1.2,          -- ระยะประกบหลังศัตรู
+    HeightOffset = 0.5,           -- ระดับความสูง
+    M1AttackSpeed = 0.05,         -- ความเร็วสแปม M1
+    PrimaryWeapon = "Melee",      -- ใช้อาวุธหมัดเป็นหลัก
     
-    -- BLINDSPOT GLUE SETTINGS (มุมอับสายตาท้ายทอย ศัตรูตีไม่โดน)
-    BlindspotDistance = 2.4,      -- ระยะห่างด้านหลังท้ายทอย
-    BlindspotHeight = 2.8,        -- ความสูงระดับท้ายทอย
+    -- SKILL SETTINGS
+    UseSkills = true,             -- เปิดใช้งานสกิลหมัด Z, X, C ร่วมกับ M1
     
-    -- ONE-SHOT COMBO ENGINE
-    EnableOneShotCombo = true,    -- เปิดใช้งานคอมโบวันช็อตชุดเดียวตาย
-    M1PacketMultiplier = 3,       -- จำนวน Packet โจมตี M1 ต่อรอบ
-    M1AttackSpeed = 0.04,         -- ความเร็วสแปม M1
-    HitboxSize = 120,             -- รัศมีฮิตบ็อกซ์รอบตัว
-    
-    -- ESP SETTINGS
-    EnableESP = true,             -- 3D ESP Status
-    ESPTextSize = 11,
-    
-    -- SURVIVAL & RECOVERY
-    AutoReturnOnKill = true,      -- หนีขึ้นฟ้าแล้วกลับเกาะแรกอัตโนมัติเมื่อฆ่าเสร็จ
+    -- SURVIVAL & RETREAT
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
     EmergencyEscape = true,
-    EmergencyHPThreshold = 45,
-    RecoveryHPThreshold = 95
+    EmergencyHPThreshold = 35,
+    RecoveryHPThreshold = 85,
+    EscapeSkyAltitude = 500,
+    PostKillRetreatDuration = 4.0,
+    
+    -- ESP
+    EnableESP = true,
+    ESPTextSize = 11
 }
 
 local Stats = {
@@ -90,8 +62,8 @@ local AppState = {
     SelectedPlayer = nil,
     IsHunting = false,
     IsSpectating = false,
+    IsHealingInSky = false,
     IsRetreating = false,
-    IsExecutingCombo = false,
     CurrentCombatStatus = "Idle"
 }
 
@@ -210,7 +182,7 @@ local function CheckTargetStatus(player)
 end
 
 -- =========================================================================
--- 3D ESP SYSTEM (NAME, HEALTH, DISTANCE, STATUS)
+-- 3D ESP SYSTEM
 -- =========================================================================
 local ESPFolder = Instance.new("Folder")
 ESPFolder.Name = "BountyGod_ESP"
@@ -362,7 +334,7 @@ end
 local lastRaceTick = 0
 local function TriggerRaceSkill()
     if not Config.AutoRaceV3 then return end
-    if tick() - lastRaceTick < 12 then return end
+    if tick() - lastRaceTick < 15 then return end
     lastRaceTick = tick()
 
     pcall(function()
@@ -413,7 +385,7 @@ local function EquipWeapon(weaponType)
 end
 
 -- =========================================================================
--- ADVANCED COMBAT FRAMEWORK HOOK & MULTI-PACKET M1 ENGINE
+-- CLEAN & POWERFUL ATTACK ENGINE (M1 FAST ATTACK + MELEE SKILLS)
 -- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
@@ -451,8 +423,15 @@ local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Mo
 local RegisterAttack = Net and (Net:FindFirstChild("RE/RegisterAttack") or Net:FindFirstChild("RegisterAttack"))
 local RegisterHit = Net and (Net:FindFirstChild("RE/RegisterHit") or Net:FindFirstChild("RegisterHit"))
 
+-- รายการสกิลหมัด
+local MeleeSkillCooldowns = {
+    { Key = Enum.KeyCode.Z, Hold = 0.10, Cooldown = 3.2, LastUsed = 0 },
+    { Key = Enum.KeyCode.X, Hold = 0.12, Cooldown = 3.6, LastUsed = 0 },
+    { Key = Enum.KeyCode.C, Hold = 0.15, Cooldown = 4.0, LastUsed = 0 },
+}
+
 local comboStep = 1
-local function ExecuteM1Burst()
+local function ExecuteAttack(targetChar, targetRoot)
     local myChar = GetChar(LocalPlayer)
     local myHum = GetHum(myChar)
     if not myChar or not myHum or myHum.Health <= 0 then return end
@@ -460,16 +439,30 @@ local function ExecuteM1Burst()
     myHum.Sit = false
     myHum.PlatformStand = false
 
-    local tool = myChar:FindFirstChildOfClass("Tool")
-    local targetChar = AppState.SelectedPlayer and GetChar(AppState.SelectedPlayer)
-    local targetRoot = targetChar and GetRoot(targetChar)
-    local targetHum = targetChar and GetHum(targetChar)
+    -- 1. ถือหมัดเสมอ
+    local tool = EquipWeapon("Melee")
 
-    -- Hook CombatController
+    -- 2. รันสกิลหมัด Z, X, C ถ้าพร้อม
+    if Config.UseSkills then
+        local now = tick()
+        for _, skill in ipairs(MeleeSkillCooldowns) do
+            if now - skill.LastUsed >= skill.Cooldown then
+                skill.LastUsed = now
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, skill.Key, false, game)
+                    task.wait(skill.Hold)
+                    VirtualInputManager:SendKeyEvent(false, skill.Key, false, game)
+                end)
+                break
+            end
+        end
+    end
+
+    -- 3. รัน M1 Fast Attack
     local controller = ResolveCombatController()
     if controller then
         pcall(function()
-            controller.hitboxMagnitude = Config.HitboxSize
+            controller.hitboxMagnitude = 70
             controller.timeToNextAttack = 0
             controller.hitAttempts = 0
             controller.attacking = false
@@ -484,20 +477,15 @@ local function ExecuteM1Burst()
         end)
     end
 
-    -- Multi-Packet Strike (ยิง Packet ซ้ำเพื่อเร่งความเสียหายทันที)
-    for _ = 1, Config.M1PacketMultiplier do
-        if RegisterAttack then
-            pcall(function() RegisterAttack:FireServer(0) end)
-        end
+    -- 4. ส่ง Packet โจมตีและ Hit
+    if RegisterAttack then
+        pcall(function() RegisterAttack:FireServer(0) end)
+    end
 
-        if RegisterHit and targetRoot and targetHum and targetHum.Health > 0 then
-            pcall(function()
-                local hitList = {
-                    { targetChar, targetRoot }
-                }
-                RegisterHit:FireServer(targetRoot, hitList)
-            end)
-        end
+    if RegisterHit and targetRoot and targetChar.Parent then
+        pcall(function()
+            RegisterHit:FireServer(targetRoot, { { targetChar, targetRoot } })
+        end)
     end
 
     if tool then
@@ -511,85 +499,10 @@ local function ExecuteM1Burst()
     end)
 end
 
--- =========================================================================
--- TRUE ONE-SHOT COMBO PIPELINE (KEN-BREAK -> STUNLOCK -> INSTANT EXECUTION)
--- =========================================================================
-local OneShotSequence = {
-    -- STEP 1: KEN-BREAK & STUN (Godhuman C / Melee Stun)
-    { Weapon = "Melee", Key = Enum.KeyCode.C, Hold = 0.18, Delay = 0.22, Name = "Melee Stun [Ken-Break]" },
-    
-    -- STEP 2: SWORD PULL & SLASH BURST (CDK / Spikey / Shark Anchor)
-    { Weapon = "Sword", Key = Enum.KeyCode.Z, Hold = 0.14, Delay = 0.20, Name = "Sword Stun & Pull" },
-    { Weapon = "Sword", Key = Enum.KeyCode.X, Hold = 0.18, Delay = 0.24, Name = "Sword High Burst" },
-    
-    -- STEP 3: MELEE RAPID FINISHER (Melee Z & X)
-    { Weapon = "Melee", Key = Enum.KeyCode.Z, Hold = 0.12, Delay = 0.18, Name = "Melee Dash Strike" },
-    { Weapon = "Melee", Key = Enum.KeyCode.X, Hold = 0.15, Delay = 0.22, Name = "Melee Finisher" },
-
-    -- STEP 4: GUN / FRUIT AUXILIARY BURST
-    { Weapon = "Gun", Key = Enum.KeyCode.Z, Hold = 0.10, Delay = 0.16, Name = "Gun Stun Beam" },
-    { Weapon = "Blox Fruit", Key = Enum.KeyCode.C, Hold = 0.15, Delay = 0.22, Name = "Fruit Finisher" },
-}
-
-local function RunOneShotComboRoutine()
-    if AppState.IsExecutingCombo then return end
-    AppState.IsExecutingCombo = true
-
-    task.spawn(function()
-        while AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsRetreating do
-            local targetChar = GetChar(AppState.SelectedPlayer)
-            local targetRoot = targetChar and GetRoot(targetChar)
-            local targetHum = targetChar and GetHum(targetChar)
-            local myChar = GetChar(LocalPlayer)
-            local myRoot = myChar and GetRoot(myChar)
-
-            if not targetChar or not targetRoot or not targetHum or targetHum.Health <= 0 or not myRoot then
-                break
-            end
-
-            local dist = (targetRoot.Position - myRoot.Position).Magnitude
-            if dist <= 35 and Config.EnableOneShotCombo then
-                for _, step in ipairs(OneShotSequence) do
-                    if not AppState.IsHunting or AppState.IsRetreating then break end
-                    
-                    targetChar = GetChar(AppState.SelectedPlayer)
-                    targetHum = targetChar and GetHum(targetChar)
-                    if not targetChar or not targetHum or targetHum.Health <= 0 then break end
-
-                    -- 1. สลับอาวุธสำหรับขั้นตอนนี้
-                    EquipWeapon(step.Weapon)
-                    task.wait(0.02)
-
-                    -- 2. ล็อคมุมกล้องจ้องตรงท้ายทอยเป้าหมาย
-                    pcall(function()
-                        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-                    end)
-
-                    -- 3. แทรก Quad-Packet M1 Burst
-                    ExecuteM1Burst()
-
-                    -- 4. ยิงสกิลพร้อมกัน
-                    pcall(function()
-                        VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
-                        task.wait(step.Hold)
-                        VirtualInputManager:SendKeyEvent(false, step.Key, false, game)
-                    end)
-
-                    task.wait(step.Delay)
-                end
-            else
-                task.wait(0.15)
-            end
-            task.wait(0.05)
-        end
-        AppState.IsExecutingCombo = false
-    end)
-end
-
--- ลูปคอมแบท M1 ต่อเนื่อง
+-- ลูปการโจมตีอัตโนมัติ
 task.spawn(function()
     while true do
-        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsRetreating then
+        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
             local targetChar = GetChar(AppState.SelectedPlayer)
             local myChar = GetChar(LocalPlayer)
             local targetRoot = GetRoot(targetChar)
@@ -597,11 +510,8 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 35 then
-                    ExecuteM1Burst()
-                    if not AppState.IsExecutingCombo and Config.EnableOneShotCombo then
-                        RunOneShotComboRoutine()
-                    end
+                if dist <= 20 then
+                    ExecuteAttack(targetChar, targetRoot)
                 end
             end
         end
@@ -623,7 +533,7 @@ local function ApplyPhysics(myRoot)
     local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
     bg.Name = "BountyBG"
     bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 20000
+    bg.P = 18000
     bg.Parent = myRoot
 end
 
@@ -633,9 +543,8 @@ local function RemovePhysics(myRoot)
     if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
 end
 
--- ระบบ NoClip ตลอดเวลา
 RunService.Stepped:Connect(function()
-    if AppState.IsHunting or AppState.IsRetreating then
+    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
         local myChar = GetChar(LocalPlayer)
         if myChar then
             for _, part in ipairs(myChar:GetDescendants()) do
@@ -649,116 +558,52 @@ end)
 
 local function StopHunt(reason)
     AppState.IsHunting = false
+    AppState.IsHealingInSky = false
     AppState.IsRetreating = false
-    AppState.IsExecutingCombo = false
     AppState.CurrentCombatStatus = reason or "Idle"
     local myChar = GetChar(LocalPlayer)
     RemovePhysics(GetRoot(myChar))
 end
 
 -- =========================================================================
--- POST-KILL CONTROLLED SKY ESCAPE & SAFE ISLAND CRUISE (กันโรลแบ็ค 100%)
+-- POST-KILL SKY RETREAT CONTROLLER
 -- =========================================================================
-local function TriggerSafeSkyRetreat()
+local function TriggerSafeRetreat()
     if AppState.IsRetreating then return end
     AppState.IsHunting = false
     AppState.IsRetreating = true
-    AppState.IsExecutingCombo = false
-    AppState.SelectedPlayer = nil
-    AppState.CurrentCombatStatus = "TARGET ELIMINATED! Ascending to High Sky Safe Zone..."
+    AppState.CurrentCombatStatus = "Target Eliminated! Retreating to Safe Sky..."
 
     task.spawn(function()
-        local starterPos = GetStarterIslandPos()
-        local skyAltitude = Config.SkyEscapeAltitude
-        local returnSpeed = Config.SafeReturnSpeed
-
-        -- Phase 1: พุ่งขึ้นสู่ท้องฟ้าชั้นสูงทันที (หนีพื้นที่ต่อสู้)
-        local myChar = GetChar(LocalPlayer)
-        local myRoot = GetRoot(myChar)
-        if myRoot then
-            local startLift = tick()
-            while tick() - startLift < 2.5 do
-                myChar = GetChar(LocalPlayer)
-                myRoot = GetRoot(myChar)
-                if not myRoot then break end
-
+        local start = tick()
+        while tick() - start < Config.PostKillRetreatDuration do
+            local myChar = GetChar(LocalPlayer)
+            local myRoot = GetRoot(myChar)
+            if myRoot then
                 ApplyPhysics(myRoot)
-                EnsureKen()
-                EnsureBuso()
-
-                local upPos = Vector3.new(myRoot.Position.X, skyAltitude, myRoot.Position.Z)
-                local diff = upPos - myRoot.Position
-                if diff.Magnitude < 15 then break end
-
+                local safePos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
+                local diff = safePos - myRoot.Position
                 local bv = myRoot:FindFirstChild("BountyBV")
                 if bv then
-                    bv.Velocity = diff.Unit * 220
+                    bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
                 end
-                task.wait(0.03)
             end
+            task.wait(0.05)
         end
 
-        -- Phase 2: บินบนฟ้าชั้นบรรยากาศกลับเกาะแรกด้วยความเร็วปลอดภัย (ช้าๆ ไร้โรลแบ็ค 100%)
-        local skyStarterPos = Vector3.new(starterPos.X, skyAltitude, starterPos.Z)
-        while Config.AutoReturnOnKill do
-            myChar = GetChar(LocalPlayer)
-            myRoot = GetRoot(myChar)
-            local myHum = GetHum(myChar)
-            if not myChar or not myRoot or not myHum or myHum.Health <= 0 then break end
-
-            ApplyPhysics(myRoot)
-            EnsureKen()
-            EnsureBuso()
-
-            local horizontalDist = (Vector3.new(myRoot.Position.X, 0, myRoot.Position.Z) - Vector3.new(starterPos.X, 0, starterPos.Z)).Magnitude
-            AppState.CurrentCombatStatus = string.format("Cruising to Starter Island (%dm) [No Rollback Safe]", math.floor(horizontalDist))
-
-            if horizontalDist <= 25 then
-                break
-            end
-
-            local dir = (skyStarterPos - myRoot.Position).Unit
-            local bv = myRoot:FindFirstChild("BountyBV")
-            local bg = myRoot:FindFirstChild("BountyBG")
-            if bg then
-                bg.CFrame = CFrame.lookAt(myRoot.Position, Vector3.new(starterPos.X, myRoot.Position.Y, starterPos.Z))
-            end
-            if bv then
-                bv.Velocity = dir * returnSpeed
-            end
-            task.wait(0.03)
-        end
-
-        -- Phase 3: ร่อนลงจอดในพื้นที่ปลอดภัยของเกาะแรกอย่างนุ่มนวล
-        AppState.CurrentCombatStatus = "Descending to Starter Safe Zone..."
-        local descendStart = tick()
-        while tick() - descendStart < 4.0 do
-            myChar = GetChar(LocalPlayer)
-            myRoot = GetRoot(myChar)
-            if not myRoot then break end
-
-            local diff = (starterPos + Vector3.new(0, 3, 0)) - myRoot.Position
-            if diff.Magnitude <= 6 then break end
-
-            local bv = myRoot:FindFirstChild("BountyBV")
-            if bv then
-                bv.Velocity = diff.Unit * math.min(100, diff.Magnitude * 10)
-            end
-            task.wait(0.03)
-        end
-
-        myChar = GetChar(LocalPlayer)
-        myRoot = GetRoot(myChar)
+        local myChar = GetChar(LocalPlayer)
+        local myRoot = GetRoot(myChar)
         local bv = myRoot and myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
 
         AppState.IsRetreating = false
-        StopHunt("Safely Returned to Starter Island (100% Intact)")
+        AppState.SelectedPlayer = nil
+        StopHunt("Hunt Finished (Safe in Sky)")
     end)
 end
 
 -- =========================================================================
--- MAIN COMBAT ENGINE LOOP (BLINDSPOT NAPE GLUE & EVASION)
+-- MAIN ENGINE LOOP
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if AppState.IsRetreating then return end
@@ -775,19 +620,34 @@ RunService.Heartbeat:Connect(function()
 
     local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
 
-    -- Emergency Sky Escape when low HP
-    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold) then
-        TriggerSafeSkyRetreat()
-        return
+    -- Emergency Sky Heal
+    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
+        if currentHpPercent < Config.RecoveryHPThreshold then
+            AppState.IsHealingInSky = true
+            AppState.CurrentCombatStatus = string.format("HEALING: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
+            
+            ApplyPhysics(myRoot)
+            EnsureKen()
+            
+            local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
+            local diff = skyPos - myRoot.Position
+            local bv = myRoot:FindFirstChild("BountyBV")
+            if bv then
+                bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
+            end
+            return
+        else
+            AppState.IsHealingInSky = false
+        end
     end
 
     local targetChar = GetChar(AppState.SelectedPlayer)
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย -> พุ่งขึ้นฟ้าและบินกลับเกาะแรกอย่างนุ่มนวล
+    -- ตรวจสอบการตายของเป้าหมาย
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
-        TriggerSafeSkyRetreat()
+        TriggerSafeRetreat()
         return
     end
 
@@ -805,11 +665,9 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- =========================================================================
-    -- NAPE BLINDSPOT GLUE CALCULATION (ประกบติดท้ายทอยมุมอับสายตา 100%)
-    -- =========================================================================
-    local blindspotCFrame = targetRoot.CFrame * CFrame.new(0, Config.BlindspotHeight, Config.BlindspotDistance)
-    local targetPos = blindspotCFrame.Position
+    -- เกาะติดหลังศัตรูในระยะ 1.2 Studs (Overlapped Stick Position)
+    local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
+    local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
     local dist = (targetPos - currentPos).Magnitude
 
@@ -818,21 +676,21 @@ RunService.Heartbeat:Connect(function()
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
-    if dist > 3.8 then
-        AppState.CurrentCombatStatus = "Rushing to Blindspot (" .. math.floor(dist) .. "m)"
+    if dist > 3.5 then
+        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
         local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = dir * math.min(Config.CombatFlySpeed, dist * 35)
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 30)
         end
     else
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
-        -- ล็อคมุมมองและตำแหน่งติดท้ายทอยเป้าหมาย (ศัตรูตีไปข้างหน้าจะไม่โดนเราเลย)
+        -- ล็อคมุมมองและตำแหน่งแนบตัวศัตรู
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Blindspot Stunlock Active (One-Shot Execution)"
+        AppState.CurrentCombatStatus = "Executing Melee Strike + M1 Combo..."
     end
 end)
 
@@ -884,8 +742,8 @@ end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.85, 0) or UDim2.new(0, 570, 0, 500)
-MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.07, 0) or UDim2.new(0.5, -285, 0.5, -250)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.82, 0) or UDim2.new(0, 560, 0, 470)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.09, 0) or UDim2.new(0.5, -280, 0.5, -235)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -910,7 +768,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v8.4 (BLINDSPOT ONE-SHOT)"
+Header.Text = "  ⚡ BOUNTY GOD v8.5 (CLEAN MELEE ATTACK)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -918,80 +776,26 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
--- QUICK ACTION BUTTONS
-local ActionToolbar = Instance.new("Frame")
-ActionToolbar.Size = UDim2.new(1, -16, 0, 30)
-ActionToolbar.Position = UDim2.new(0, 8, 0, 42)
-ActionToolbar.BackgroundTransparency = 1
-ActionToolbar.Parent = MainFrame
-
-local SkyEscapeBtn = Instance.new("TextButton")
-SkyEscapeBtn.Size = UDim2.new(0.24, -3, 1, 0)
-SkyEscapeBtn.Position = UDim2.new(0, 0, 0, 0)
-SkyEscapeBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-SkyEscapeBtn.Text = "🕊️ SKY ESCAPE"
-SkyEscapeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SkyEscapeBtn.Font = Enum.Font.GothamBold
-SkyEscapeBtn.TextSize = IsMobile and 10 or 11
-SkyEscapeBtn.Parent = ActionToolbar
-Instance.new("UICorner", SkyEscapeBtn).CornerRadius = UDim.new(0, 6)
-
-local ComboToggleBtn = Instance.new("TextButton")
-ComboToggleBtn.Size = UDim2.new(0.24, -3, 1, 0)
-ComboToggleBtn.Position = UDim2.new(0.25, 0, 0, 0)
-ComboToggleBtn.BackgroundColor3 = Config.EnableOneShotCombo and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
-ComboToggleBtn.Text = Config.EnableOneShotCombo and "⚔️ 1-SHOT: ON" or "⚔️ 1-SHOT: OFF"
-ComboToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ComboToggleBtn.Font = Enum.Font.GothamBold
-ComboToggleBtn.TextSize = IsMobile and 10 or 11
-ComboToggleBtn.Parent = ActionToolbar
-Instance.new("UICorner", ComboToggleBtn).CornerRadius = UDim.new(0, 6)
-
-local TPCafeBtn = Instance.new("TextButton")
-TPCafeBtn.Size = UDim2.new(0.24, -3, 1, 0)
-TPCafeBtn.Position = UDim2.new(0.50, 0, 0, 0)
-TPCafeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
-TPCafeBtn.Text = "☕ CAFE"
-TPCafeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-TPCafeBtn.Font = Enum.Font.GothamBold
-TPCafeBtn.TextSize = IsMobile and 10 or 11
-TPCafeBtn.Parent = ActionToolbar
-Instance.new("UICorner", TPCafeBtn).CornerRadius = UDim.new(0, 6)
-
 local ESPToggleBtn = Instance.new("TextButton")
-ESPToggleBtn.Size = UDim2.new(0.24, -3, 1, 0)
-ESPToggleBtn.Position = UDim2.new(0.75, 0, 0, 0)
+ESPToggleBtn.Size = UDim2.new(0, 80, 0, 24)
+ESPToggleBtn.Position = UDim2.new(1, -90, 0, 7)
 ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
-ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP ON" or "👁️ ESP OFF"
+ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
 ESPToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ESPToggleBtn.Font = Enum.Font.GothamBold
-ESPToggleBtn.TextSize = IsMobile and 10 or 11
-ESPToggleBtn.Parent = ActionToolbar
-Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 6)
-
-ComboToggleBtn.MouseButton1Click:Connect(function()
-    Config.EnableOneShotCombo = not Config.EnableOneShotCombo
-    ComboToggleBtn.Text = Config.EnableOneShotCombo and "⚔️ 1-SHOT: ON" or "⚔️ 1-SHOT: OFF"
-    ComboToggleBtn.BackgroundColor3 = Config.EnableOneShotCombo and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
-end)
+ESPToggleBtn.TextSize = 10
+ESPToggleBtn.Parent = Header
+Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 4)
 
 ESPToggleBtn.MouseButton1Click:Connect(function()
     Config.EnableESP = not Config.EnableESP
-    ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP ON" or "👁️ ESP OFF"
+    ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
     ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
 end)
 
-SkyEscapeBtn.MouseButton1Click:Connect(function()
-    TriggerSafeSkyRetreat()
-end)
-
-TPCafeBtn.MouseButton1Click:Connect(function()
-    TriggerSafeSkyRetreat()
-end)
-
 local StatsCard = Instance.new("Frame")
-StatsCard.Size = UDim2.new(1, -16, 0, 56)
-StatsCard.Position = UDim2.new(0, 8, 0, 76)
+StatsCard.Size = UDim2.new(1, -16, 0, 58)
+StatsCard.Position = UDim2.new(0, 8, 0, 44)
 StatsCard.BackgroundColor3 = Color3.fromRGB(24, 29, 42)
 StatsCard.Parent = MainFrame
 Instance.new("UICorner", StatsCard).CornerRadius = UDim.new(0, 8)
@@ -1029,8 +833,6 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                -- ฆ่าได้สำเร็จ -> พุ่งขึ้นฟ้าแล้วบินกลับเกาะแรกอย่างนุ่มนวล
-                TriggerSafeSkyRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
                 Stats.Deaths = Stats.Deaths + 1
@@ -1044,8 +846,8 @@ SetupBountyListener()
 UpdateStatsDisplay()
 
 local ScrollList = Instance.new("ScrollingFrame")
-ScrollList.Size = UDim2.new(1, -16, 1, -200)
-ScrollList.Position = UDim2.new(0, 8, 0, 136)
+ScrollList.Size = UDim2.new(1, -16, 1, -175)
+ScrollList.Position = UDim2.new(0, 8, 0, 110)
 ScrollList.BackgroundColor3 = Color3.fromRGB(11, 13, 18)
 ScrollList.ScrollBarThickness = IsMobile and 6 or 4
 ScrollList.Parent = MainFrame
@@ -1226,6 +1028,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Blindspot Execution)..."
+        StatusLabel.Text = "Status: Engaging Target (Melee Strike)..."
     end
 end)
