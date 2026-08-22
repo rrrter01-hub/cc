@@ -1,11 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.6 (REBUILT & FIXED)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.8 (AUTO TAUNT & PROVOKE)
 -- Features:
---  1. Unified Combat Engine: Fast M1 + Melee Skill Sequence (Z, X, C)
---  2. Smooth Physics Tracker: เกาะติดหลังเป้าหมาย 1.5 Studs ไม่กระตุก ไม่หลุดระยะ
---  3. Safe Sky Retreat: เมื่อศัตรูตาย ลอยขึ้นฟ้าทันที ป้องกันโดนสวน
---  4. 3D Billboard ESP & Radar Dashboard
---  5. Auto Buffs (Buso Haki, Ken Haki, Race V3)
+--  1. Auto Chat Provocation (พิมพ์ยั่วยุเป้าหมายในแชทอัตโนมัติ เพื่อดึงเข้าสถานะ PvP)
+--  2. In-Combat State Force Trigger (การันตีระบบเกมมอบค่าหัว Bounty/Honor 100%)
+--  3. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
+--  4. Clean Melee Combat Engine: Fast M1 + Skills (Z, X, C)
+--  5. Smooth Physics Tracker: เกาะติดหลังศัตรู 1.8 Studs
+--  6. Post-Kill Safe Sky Retreat (ลอยขึ้นฟ้าทันทีหลังฆ่าเสร็จ)
+--  7. 3D Billboard ESP & Radar Dashboard
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -16,6 +18,7 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -29,6 +32,13 @@ local Config = {
     StickDistance = 1.8,          -- ระยะห่างด้านหลังศัตรู (Studs)
     HeightOffset = 1.0,           -- ระดับความสูงจากพื้น
     M1AttackSpeed = 0.08,         -- จังหวะกด M1 (วินาที)
+    
+    -- TAUNT & PROVOCATION SETTINGS (ระบบยั่วยุศัตรู)
+    AutoTaunt = true,             -- เปิดใช้งานการพิมพ์ยั่วยุศัตรูในแชท
+    TauntCooldown = 6.0,          -- ระยะห่างการพิมพ์ยั่วยุ (วินาที)
+    
+    -- NOCLIP
+    PermanentNoClip = true,       -- เปิดใช้งานระบบเดินทะลุกำแพงตลอดเวลา
     
     -- SKILL ROTATION
     UseSkills = true,             -- เปิดใช้งานสกิลหมัด
@@ -95,6 +105,72 @@ end
 
 Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
+
+-- =========================================================================
+-- AUTO CHAT TAUNT & PROVOCATION MODULE (ยั่วยุเปิดสถานะ In-Combat)
+-- =========================================================================
+local DefaultChatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+local SayMessageRequest = DefaultChatEvents and DefaultChatEvents:FindFirstChild("SayMessageRequest")
+
+local TauntPhrases = {
+    "1v1 me bro?",
+    "why running ez?",
+    "hit me if you can lol",
+    "free bounty here fight back",
+    "ez runner",
+    "oil up lil bro",
+    "come at me 6767"
+}
+
+local lastTauntTick = 0
+local function SendTauntMessage(targetPlayer)
+    if not Config.AutoTaunt or (tick() - lastTauntTick < Config.TauntCooldown) or not targetPlayer then return end
+    lastTauntTick = tick()
+
+    local phrase = TauntPhrases[math.random(1, #TauntPhrases)]
+    local targetName = targetPlayer.DisplayName or targetPlayer.Name
+    local fullMessage = targetName .. " " .. phrase
+
+    task.spawn(function()
+        pcall(function()
+            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+                local textChannel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+                if textChannel then
+                    textChannel:SendAsync(fullMessage)
+                end
+            elseif SayMessageRequest then
+                SayMessageRequest:FireServer(fullMessage, "All")
+            end
+        end)
+    end)
+end
+
+-- =========================================================================
+-- PERMANENT NOCLIP ENGINE (เดินทะลุกำแพงและสิ่งกีดขวาง 100%)
+-- =========================================================================
+RunService.Stepped:Connect(function()
+    if Config.PermanentNoClip or AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
+        local myChar = GetChar(LocalPlayer)
+        if myChar then
+            for _, part in ipairs(myChar:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    task.wait(0.5)
+    if Config.PermanentNoClip then
+        for _, part in ipairs(newChar:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
 
 -- =========================================================================
 -- TARGET STATUS CHECKER
@@ -501,7 +577,9 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 18 then
+                if dist <= 20 then
+                    -- ส่งคำยั่วยุเปิดสถานะต่อสู้
+                    SendTauntMessage(AppState.SelectedPlayer)
                     ExecuteAttackCycle(targetChar, targetRoot)
                 end
             end
@@ -511,7 +589,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- PHYSICS & MOVEMENT CONTROLLER (SMOOTH & ANTI-GLITCH)
+-- PHYSICS & MOVEMENT CONTROLLER
 -- =========================================================================
 local function ApplyPhysics(myRoot)
     if not myRoot then return end
@@ -533,19 +611,6 @@ local function RemovePhysics(myRoot)
     if myRoot:FindFirstChild("BountyBV") then myRoot.BountyBV:Destroy() end
     if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
 end
-
-RunService.Stepped:Connect(function()
-    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
-        local myChar = GetChar(LocalPlayer)
-        if myChar then
-            for _, part in ipairs(myChar:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-        end
-    end
-end)
 
 local function StopHunt(reason)
     AppState.IsHunting = false
@@ -684,7 +749,7 @@ RunService.Heartbeat:Connect(function()
         -- ล็อคมุมมองและตำแหน่งแนบตัวศัตรู
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Engaging: Melee Strike + Fast M1..."
+        AppState.CurrentCombatStatus = "Engaging: Melee Strike + Fast M1 (Taunting)..."
     end
 end)
 
@@ -762,13 +827,48 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v8.6 (STABLE MELEE ENGINE)"
+Header.Text = "  ⚡ BOUNTY GOD v8.8 (PROVOKE & TAUNT CORE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
 Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+-- ACTION BUTTONS (TAUNT, NOCLIP, ESP)
+local TauntToggleBtn = Instance.new("TextButton")
+TauntToggleBtn.Size = UDim2.new(0, 80, 0, 24)
+TauntToggleBtn.Position = UDim2.new(1, -260, 0, 7)
+TauntToggleBtn.BackgroundColor3 = Config.AutoTaunt and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+TauntToggleBtn.Text = Config.AutoTaunt and "💬 TAUNT: ON" or "💬 TAUNT: OFF"
+TauntToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+TauntToggleBtn.Font = Enum.Font.GothamBold
+TauntToggleBtn.TextSize = 10
+TauntToggleBtn.Parent = Header
+Instance.new("UICorner", TauntToggleBtn).CornerRadius = UDim.new(0, 4)
+
+TauntToggleBtn.MouseButton1Click:Connect(function()
+    Config.AutoTaunt = not Config.AutoTaunt
+    TauntToggleBtn.Text = Config.AutoTaunt and "💬 TAUNT: ON" or "💬 TAUNT: OFF"
+    TauntToggleBtn.BackgroundColor3 = Config.AutoTaunt and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+end)
+
+local NoClipBtn = Instance.new("TextButton")
+NoClipBtn.Size = UDim2.new(0, 80, 0, 24)
+NoClipBtn.Position = UDim2.new(1, -175, 0, 7)
+NoClipBtn.BackgroundColor3 = Config.PermanentNoClip and Color3.fromRGB(0, 122, 255) or Color3.fromRGB(100, 100, 100)
+NoClipBtn.Text = Config.PermanentNoClip and "NOCLIP: ON" or "NOCLIP: OFF"
+NoClipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+NoClipBtn.Font = Enum.Font.GothamBold
+NoClipBtn.TextSize = 10
+NoClipBtn.Parent = Header
+Instance.new("UICorner", NoClipBtn).CornerRadius = UDim.new(0, 4)
+
+NoClipBtn.MouseButton1Click:Connect(function()
+    Config.PermanentNoClip = not Config.PermanentNoClip
+    NoClipBtn.Text = Config.PermanentNoClip and "NOCLIP: ON" or "NOCLIP: OFF"
+    NoClipBtn.BackgroundColor3 = Config.PermanentNoClip and Color3.fromRGB(0, 122, 255) or Color3.fromRGB(100, 100, 100)
+end)
 
 local ESPToggleBtn = Instance.new("TextButton")
 ESPToggleBtn.Size = UDim2.new(0, 80, 0, 24)
@@ -1022,6 +1122,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Melee Strike)..."
+        StatusLabel.Text = "Status: Engaging Target (Melee Strike & Taunting)..."
     end
 end)
