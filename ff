@@ -1,69 +1,102 @@
 -- =========================================================================
--- BLOX FRUITS: AUTO SEA BEAST HUNTER MODULE
--- Features: Auto Boat Driving, Danger Zone Pathing, Sea Beast Detection,
--- Safe Hovering (70 studs), Auto Attack & Skill Spammer
+-- BLOX FRUITS: ZERO-BUG AUTO SEA BEAST (STATE MACHINE ENGINE)
+-- Sea 3 - Tiki Outpost to Danger Zone 6
 -- =========================================================================
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
--- Config
-local SeaHuntConfig = {
-    Enabled = true,
-    SafeHeight = 75, -- ความสูงเหนือหัวเจ้าทะเล (Studs)
-    AutoSkills = true, -- ยิงสกิล Z, X, C, V อัตโนมัติ
-    DangerZonePosition = Vector3.new(-25000, 20, -5000) -- พิกัดทะเลลึกโซน 5-6 (Sea 3)
+-- Waypoints เส้นทางการเดินเรือจากเกาะ Tiki (Sea 3) ไป Danger Zone 6
+local WAYPOINTS = {
+    TikiPort    = Vector3.new(-16100, 15, 450),    -- จุดท่าเรือเกาะ Tiki
+    Zone1_2     = Vector3.new(-18000, 60, -1000),  -- เข้า Danger Zone 1-2
+    Zone3_4     = Vector3.new(-22000, 60, -2500),  -- เข้า Danger Zone 3-4
+    Zone5_6     = Vector3.new(-26000, 60, -4500)   -- จุดล่าหลัก Danger Zone 5-6
 }
 
--- 1. ฟังก์ชันสร้างแท่นเหยียบกันตกน้ำ (Water Walker Platform)
-local waterPlatform = Instance.new("Part")
-waterPlatform.Name = "AntiDrownPlatform"
-waterPlatform.Size = Vector3.new(100, 2, 100)
-waterPlatform.Anchored = true
-waterPlatform.CanCollide = true
-waterPlatform.Transparency = 1
-waterPlatform.Parent = workspace
+local CurrentState = "STAGE_1_PREPARE"
+local TargetSeaBeast = nil
+local TargetRootPart = nil
 
--- 2. ฟังก์ชันค้นหาโมเดลเจ้าทะเลที่กำลังเกิดอยู่
-local function getActiveSeaBeast()
+-- สร้างแท่นเหยียบกันตกน้ำแบบล็อกตำแหน่งตัวละคร
+local SafePlatform = Instance.new("Part")
+SafePlatform.Name = "SafeHoverPlatform"
+SafePlatform.Size = Vector3.new(30, 2, 30)
+SafePlatform.Anchored = true
+SafePlatform.CanCollide = true
+SafePlatform.Transparency = 0.8
+SafePlatform.BrickColor = BrickColor.new("Cyan")
+SafePlatform.Position = Vector3.new(0, -5000, 0)
+SafePlatform.Parent = workspace
+
+-- ฟังก์ชันเคลื่อนที่แบบสมูท ไม่โดน Anti-Cheat เตะ
+local function smoothMoveTo(targetPosition, speed)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    speed = speed or 250
+    local distance = (hrp.Position - targetPosition).Magnitude
+    local time = distance / speed
+
+    local tweenInfo = TweenInfo.new(time, Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPosition)})
+    
+    hrp.Velocity = Vector3.zero
+    tween:Play()
+    tween.Completed:Wait()
+    hrp.Velocity = Vector3.zero
+end
+
+-- ฟังก์ชันค้นหาและยืนยันโมเดลเจ้าทะเล
+local function findSeaBeast()
     local enemies = workspace:FindFirstChild("Enemies")
-    if not enemies then return nil end
+    if not enemies then return nil, nil end
 
-    for _, enemy in ipairs(enemies:GetChildren()) do
-        if string.find(string.lower(enemy.Name), "sea") and enemy:FindFirstChild("Humanoid") and enemy.Humanoid.Health > 0 then
-            local root = enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChild("Head")
-            if root then
-                return enemy, root
+    for _, entity in ipairs(enemies:GetChildren()) do
+        if string.find(string.lower(entity.Name), "sea") and entity:FindFirstChild("Humanoid") then
+            if entity.Humanoid.Health > 0 then
+                local root = entity:FindFirstChild("Head") or entity:FindFirstChild("HumanoidRootPart") or entity:FindFirstChildWhichIsA("BasePart")
+                if root then
+                    return entity, root
+                end
             end
         end
     end
     return nil, nil
 end
 
--- 3. ฟังก์ชันปล่อยสกิลอัตโนมัติ (Z, X, C, V)
-local function spamSkills()
-    local skills = {Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V}
-    for _, key in ipairs(skills) do
+-- ลูปสแปมสกิล (Z, X, C, V) แบบเล็งมุมมองลงหาหัวเจ้าทะเล
+local function executeSkillCombo(targetRoot)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp and targetRoot then
+        -- ล็อกมุมหันหน้าลงหาหัวเจ้าทะเลเพื่อเล็งสกิล
+        hrp.CFrame = CFrame.lookAt(hrp.Position, targetRoot.Position)
+    end
+
+    local skillKeys = {Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V}
+    for _, key in ipairs(skillKeys) do
         VirtualInputManager:SendKeyEvent(true, key, false, game)
-        task.wait(0.1)
+        task.wait(0.08)
         VirtualInputManager:SendKeyEvent(false, key, false, game)
-        task.wait(0.2)
+        task.wait(0.15)
     end
 end
 
--- 4. ฟังก์ชันสวมใส่อาวุธที่มีดาเมจสูงสุด
-local function autoEquipWeapon()
+-- สวมใส่อาวุธที่ดีที่สุด
+local function equipWeapon()
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChild("Humanoid")
     if not hum then return end
 
-    -- ถืออาวุธประเภท Melee, Sword หรือ Fruit
     for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
         if tool:IsA("Tool") and (tool.ToolTip == "Blox Fruit" or tool.ToolTip == "Melee" or tool.ToolTip == "Sword") then
             hum:EquipTool(tool)
@@ -72,61 +105,129 @@ local function autoEquipWeapon()
     end
 end
 
+-- NoClip กันบัคกระแทกโมเดล
+RunService.Stepped:Connect(function()
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
 -- =========================================================================
--- MAIN SEA HUNTING LOOP
+-- MAIN STATE MACHINE LOOP
 -- =========================================================================
 task.spawn(function()
-    print("[+] Auto Sea Beast Hunter Started!")
+    print("[+] State Machine Sea Hunter Engine Loaded!")
 
     while task.wait(0.1) do
-        if SeaHuntConfig.Enabled then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                local hum = char and char:FindFirstChild("Humanoid")
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChild("Humanoid")
 
-                if not (hrp and hum and hum.Health > 0) then return end
+            if not (hrp and hum and hum.Health > 0) then return end
 
-                local seaBeast, sbRoot = getActiveSeaBeast()
+            -- =============================================================
+            -- STAGE 1: เตรียมตัวที่เกาะ Tiki Outpost
+            -- =============================================================
+            if CurrentState == "STAGE_1_PREPARE" then
+                print("[State 1] เตรียมตัวและเดินทางไปท่าเรือ Tiki...")
+                SafePlatform.Position = Vector3.new(0, -5000, 0)
+                
+                -- เคลื่อนที่ไปท่าเรือ
+                smoothMoveTo(WAYPOINTS.TikiPort + Vector3.new(0, 10, 0), 300)
+                task.wait(0.5)
 
-                if seaBeast and sbRoot then
-                    -- =====================================================
-                    -- PHASE 1: กำลังสู้กับเจ้าทะเล (Combat Mode)
-                    -- =====================================================
-                    -- 1. ลอยตัวอยู่เหนือหัวเจ้าทะเลในระยะปลอดภัย
-                    local targetCFrame = sbRoot.CFrame * CFrame.new(0, SeaHuntConfig.SafeHeight, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-                    hrp.CFrame = targetCFrame
+                -- ซื้อเรือใบ (Grand Brigade)
+                pcall(function()
+                    CommF:InvokeServer("BuyBoat", "GrandBrigade")
+                end)
+                task.wait(1)
+
+                CurrentState = "STAGE_2_SAILING"
+
+            -- =============================================================
+            -- STAGE 2: แล่นเรือผ่าน Waypoints มุ่งหน้าสู่ Danger Zone 6
+            -- =============================================================
+            elseif CurrentState == "STAGE_2_SAILING" then
+                print("[State 2] กำลังแล่นเรือผ่านโซนอันตราย...")
+
+                -- ตรวจสอบระหว่างทางว่ามีเจ้าทะเลเกิดหรือไม่
+                local sb, sbRoot = findSeaBeast()
+                if sb and sbRoot then
+                    TargetSeaBeast = sb
+                    TargetRootPart = sbRoot
+                    CurrentState = "STAGE_4_COMBAT"
+                    return
+                end
+
+                -- บินระดับความสูง Y=60 ไปตามลำดับ Waypoints
+                smoothMoveTo(WAYPOINTS.Zone1_2, 200)
+                smoothMoveTo(WAYPOINTS.Zone3_4, 200)
+                smoothMoveTo(WAYPOINTS.Zone5_6, 200)
+
+                CurrentState = "STAGE_3_SEARCHING"
+
+            -- =============================================================
+            -- STAGE 3: ลอยตัววนรอบ Danger Zone 5-6 รอเจ้าทะเลเกิด
+            -- =============================================================
+            elseif CurrentState == "STAGE_3_SEARCHING" then
+                local sb, sbRoot = findSeaBeast()
+                if sb and sbRoot then
+                    print("[State 3] ตรวจพบเจ้าทะเล! สลับเข้าสู่โหมดต่อสู้...")
+                    TargetSeaBeast = sb
+                    TargetRootPart = sbRoot
+                    CurrentState = "STAGE_4_COMBAT"
+                else
+                    -- บินวนรอในรัศมี 800 studs ที่ Danger Zone 6
+                    local patrolOffset = Vector3.new(math.random(-400, 400), 0, math.random(-400, 400))
+                    smoothMoveTo(WAYPOINTS.Zone5_6 + patrolOffset, 150)
+                    task.wait(1)
+                end
+
+            -- =============================================================
+            -- STAGE 4: ลอยตัวล็อกเป้า & สแปมสกิลใส่เจ้าทะเล
+            -- =============================================================
+            elseif CurrentState == "STAGE_4_COMBAT" then
+                if TargetSeaBeast and TargetSeaBeast:FindFirstChild("Humanoid") and TargetSeaBeast.Humanoid.Health > 0 and TargetRootPart then
+                    -- 1. ลอยตัวเหนือหัวเจ้าทะเล 75 Studs แบบล็อกความสูง
+                    local safePosition = TargetRootPart.Position + Vector3.new(0, 75, 0)
+                    hrp.CFrame = CFrame.lookAt(safePosition, TargetRootPart.Position)
                     hrp.Velocity = Vector3.zero
 
-                    -- 2. วางแท่นเหยียบใต้เท้าเพื่อป้องกันการร่วงลงน้ำ
-                    waterPlatform.Position = hrp.Position - Vector3.new(0, 4, 0)
+                    -- 2. ย้ายแท่นกันจมน้ำมารองใต้เท้าทันที
+                    SafePlatform.Position = hrp.Position - Vector3.new(0, 3, 0)
 
                     -- 3. สวมใส่อาวุธ
-                    autoEquipWeapon()
+                    equipWeapon()
 
-                    -- 4. โจมตีปกติ (M1 Attack)
+                    -- 4. รัวคลิกตีปกติ (M1)
                     VirtualUser:CaptureController()
                     VirtualUser:Button1Down(Vector2.new(0, 0))
 
-                    -- 5. ยิงสกิลชุดคอมโบ
-                    if SeaHuntConfig.AutoSkills then
-                        spamSkills()
-                    end
+                    -- 5. สแปมสกิล Z, X, C, V
+                    executeSkillCombo(TargetRootPart)
                 else
-                    -- =====================================================
-                    -- PHASE 2: ไม่มีเจ้าทะเล -> ขับเรือ/ลอยตัวรอใน Danger Zone
-                    -- =====================================================
-                    waterPlatform.Position = Vector3.new(0, -1000, 0) -- ซ่อนแท่นชั่วคราว
-
-                    -- ถ้าอยู่นอกโซน ให้ลอยตัวมุ่งหน้าไป Danger Zone 5-6
-                    local dist = (hrp.Position - SeaHuntConfig.DangerZonePosition).Magnitude
-                    if dist > 500 then
-                        -- บิน/เคลื่อนที่ระดับความสูง 60 เหนือระดับน้ำทะเล
-                        hrp.CFrame = CFrame.new(SeaHuntConfig.DangerZonePosition + Vector3.new(0, 60, 0))
-                        hrp.Velocity = Vector3.zero
-                    end
+                    print("[State 4] เจ้าทะเลตายแล้ว! จบการต่อสู้...")
+                    CurrentState = "STAGE_5_CLEANUP"
                 end
-            end)
-        end
+
+            -- =============================================================
+            -- STAGE 5: จบการต่อสู้ & รีเซ็ตกลับไป Stage 1
+            -- =============================================================
+            elseif CurrentState == "STAGE_5_CLEANUP" then
+                print("[State 5] รับรางวัลเรียบร้อย รีเซ็ตลูปเตรียมล่าตัวต่อไป...")
+                TargetSeaBeast = nil
+                TargetRootPart = nil
+                SafePlatform.Position = Vector3.new(0, -5000, 0)
+                task.wait(2)
+
+                CurrentState = "STAGE_1_PREPARE"
+            end
+        end)
     end
 end)
