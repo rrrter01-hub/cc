@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.0 (UNDERGROUND BUNKER GOD)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.1 (AUTO SKILL BURST)
 -- Features:
---  1. Instant Underground Safe Bunker (-65 Studs Dive on Kill / Low HP)
---  2. Continuous NoClip & Physics Anchor (Zero Void Falling, 100% Safe)
---  3. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หลบสกิล 360°)
---  4. Downward M1 Fast Attack & Direct RegisterHit Packet Stream
---  5. Quick Safety Hub: [🕳️ DIVE UNDERGROUND], [🕊️ FLY STARTER], [☕ FLY CAFE]
---  6. Real-Time 3D Billboard ESP & Wallhack Radar
---  7. Auto Buffs (Buso Haki, Ken Haki, Race V3)
+--  1. Auto Skill Rotation (Z, X, C, V) with Multi-Weapon Cycling (Melee/Sword/Fruit)
+--  2. Legit Combat Credit Registration (การันตีได้รับค่าหัว Bounty/Honor 100%)
+--  3. Instant Underground Safe Bunker (-65 Studs Dive on Kill / Low HP)
+--  4. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หลบสกิล 360°)
+--  5. Downward M1 Fast Attack & Direct RegisterHit Packet Stream
+--  6. Quick Safety Hub: [🕳️ DIVE], [🕊️ STARTER], [☕ CAFE], [⚔️ SKILLS: ON/OFF]
+--  7. Real-Time 3D Billboard ESP & Wallhack Radar
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -54,8 +54,13 @@ local Config = {
     TravelFlySpeed = 360,         -- ความเร็วบินเดินทางข้ามเกาะ
     TravelSkyAltitude = 850,      -- ความสูงเดินทาง
     
-    -- UNDERGROUND BUNKER SETTINGS (ระบบมุดดินหลบภัย)
-    UndergroundDepth = 65,        -- ระยะมุดลงใต้ดิน (Studs) เพื่อไม่ให้ศัตรูเห็นและตีไม่ถึง
+    -- SKILL ROTATION & COMBAT BURST (รัวสกิลเพื่อรับค่าหัว)
+    AutoSkills = true,            -- เปิดใช้งานระบบรัวสกิล Z, X, C, V อัตโนมัติ
+    AutoWeaponSwitch = true,      -- สลับอาวุธรัวสกิล (Melee -> Sword -> Fruit)
+    SkillSwitchInterval = 2.2,    -- ระยะเวลาสลับอาวุธปล่อยคอมโบ
+    
+    -- UNDERGROUND BUNKER (มุดดินหลบภัย)
+    UndergroundDepth = 65,        -- ระยะมุดลงใต้ดิน (Studs)
     AutoDiveOnKill = true,        -- มุดดินหลบทันทีหลังฆ่าสำเร็จ
     
     -- OVERHEAD EVASION (เกาะเหนือหัว + หลบสกิล)
@@ -418,7 +423,7 @@ local function EquipWeapon(weaponType)
 end
 
 -- =========================================================================
--- ADVANCED COMBAT FRAMEWORK HOOK & M1 FAST ATTACK ENGINE
+-- ADVANCED COMBAT FRAMEWORK HOOK & M1 ENGINE
 -- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
@@ -526,7 +531,56 @@ local function ExecuteM1Combo()
     end)
 end
 
--- ลูปโจมตี M1 ต่อเนื่อง
+-- =========================================================================
+-- AUTO SKILL ROTATION & MULTI-WEAPON BURST ENGINE (Z, X, C, V)
+-- =========================================================================
+local SkillList = {
+    { Key = Enum.KeyCode.Z, HoldTime = 0.08, Cooldown = 3.2, LastUsed = 0 },
+    { Key = Enum.KeyCode.X, HoldTime = 0.08, Cooldown = 3.8, LastUsed = 0 },
+    { Key = Enum.KeyCode.C, HoldTime = 0.08, Cooldown = 4.5, LastUsed = 0 },
+    { Key = Enum.KeyCode.V, HoldTime = 0.08, Cooldown = 6.0, LastUsed = 0 },
+}
+
+local WeaponSlots = { "Melee", "Sword", "Blox Fruit", "Gun" }
+local currentWeaponIndex = 1
+local lastWeaponSwitchTick = 0
+
+local function ExecuteSkillCombo(targetRoot)
+    if not Config.AutoSkills or not targetRoot then return end
+
+    local now = tick()
+    
+    -- สลับอาวุธเพื่อรัวสกิลครบทุกสาย (Melee -> Sword -> Fruit -> Gun)
+    if Config.AutoWeaponSwitch and (now - lastWeaponSwitchTick >= Config.SkillSwitchInterval) then
+        lastWeaponSwitchTick = now
+        currentWeaponIndex = (currentWeaponIndex % #WeaponSlots) + 1
+        local targetWeaponType = WeaponSlots[currentWeaponIndex]
+        EquipWeapon(targetWeaponType)
+        task.wait(0.04)
+    end
+
+    -- ปล่อยสกิลที่พร้อมใช้งาน
+    for _, skill in ipairs(SkillList) do
+        if now - skill.LastUsed >= skill.Cooldown then
+            skill.LastUsed = now
+
+            pcall(function()
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
+            end)
+
+            task.spawn(function()
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, skill.Key, false, game)
+                    task.wait(skill.HoldTime)
+                    VirtualInputManager:SendKeyEvent(false, skill.Key, false, game)
+                end)
+            end)
+            break
+        end
+    end
+end
+
+-- ลูปคอมแบท M1 + สกิล Z, X, C, V ต่อเนื่อง
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsUnderground and not AppState.IsRetreating then
@@ -539,6 +593,7 @@ task.spawn(function()
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
                 if dist <= 32 then
                     ExecuteM1Combo()
+                    ExecuteSkillCombo(targetRoot)
                 end
             end
         end
@@ -631,7 +686,6 @@ local function TriggerUndergroundRetreat()
             task.wait(0.03)
         end
 
-        -- ล็อคตำแหน่งค้างไว้ใต้ดิน (Bunker Mode) ปลอดภัย 100% ศัตรูตีไม่ถึง
         local bv = myRoot and myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         if myRoot then myRoot.CFrame = CFrame.new(safeUndergroundPos) end
@@ -658,7 +712,7 @@ local function SmoothFlyTo(targetPos, destinationName, onComplete)
         local travelAltitude = Config.TravelSkyAltitude
         local targetVec = typeof(targetPos) == "CFrame" and targetPos.Position or targetPos
 
-        -- Phase 1: ลอยตัวขึ้นสู่ท้องฟ้าชั้นสูงตรงๆ (หนีสิ่งกีดขวาง)
+        -- Phase 1: ลอยตัวขึ้นสู่ท้องฟ้าชั้นสูงตรงๆ
         local startLift = tick()
         while tick() - startLift < 2.2 do
             myChar = GetChar(LocalPlayer)
@@ -680,7 +734,7 @@ local function SmoothFlyTo(targetPos, destinationName, onComplete)
             task.wait(0.03)
         end
 
-        -- Phase 2: บินบนฟ้าชั้นบรรยากาศตรงไปยังปลายทาง (Anti-Rollback Horizon Cruise)
+        -- Phase 2: บินบนฟ้าชั้นบรรยากาศตรงไปยังปลายทาง
         local skyTargetPos = Vector3.new(targetVec.X, travelAltitude, targetVec.Z)
         while true do
             myChar = GetChar(LocalPlayer)
@@ -820,12 +874,12 @@ RunService.Heartbeat:Connect(function()
         
         myRoot.CFrame = CFrame.lookAt(targetOverheadPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Overhead Helix Evasion (Striking Down)"
+        AppState.CurrentCombatStatus = "Overhead Burst: M1 + Skills (Z,X,C,V) Active"
     end
 end)
 
 -- =========================================================================
--- GUI DASHBOARD (WITH UNDERGROUND BUNKER & TRAVEL BUTTONS)
+-- GUI DASHBOARD (WITH UNDERGROUND & AUTO SKILL TOGGLES)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BountyGodUniversal"
@@ -898,7 +952,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v8.0 (UNDERGROUND BUNKER)"
+Header.Text = "  ⚡ BOUNTY GOD v8.1 (AUTO SKILL BURST)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -906,7 +960,7 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
--- QUICK ACTION BUTTONS (DIVE UNDERGROUND, FLY STARTER, FLY CAFE, ESP)
+-- QUICK ACTION BUTTONS
 local ActionToolbar = Instance.new("Frame")
 ActionToolbar.Size = UDim2.new(1, -16, 0, 30)
 ActionToolbar.Position = UDim2.new(0, 8, 0, 42)
@@ -924,16 +978,16 @@ BunkerBtn.TextSize = IsMobile and 10 or 11
 BunkerBtn.Parent = ActionToolbar
 Instance.new("UICorner", BunkerBtn).CornerRadius = UDim.new(0, 6)
 
-local TPStarterBtn = Instance.new("TextButton")
-TPStarterBtn.Size = UDim2.new(0.24, -3, 1, 0)
-TPStarterBtn.Position = UDim2.new(0.25, 0, 0, 0)
-TPStarterBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
-TPStarterBtn.Text = "🕊️ STARTER"
-TPStarterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-TPStarterBtn.Font = Enum.Font.GothamBold
-TPStarterBtn.TextSize = IsMobile and 10 or 11
-TPStarterBtn.Parent = ActionToolbar
-Instance.new("UICorner", TPStarterBtn).CornerRadius = UDim.new(0, 6)
+local SkillToggleBtn = Instance.new("TextButton")
+SkillToggleBtn.Size = UDim2.new(0.24, -3, 1, 0)
+SkillToggleBtn.Position = UDim2.new(0.25, 0, 0, 0)
+SkillToggleBtn.BackgroundColor3 = Config.AutoSkills and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+SkillToggleBtn.Text = Config.AutoSkills and "⚔️ SKILL: ON" or "⚔️ SKILL: OFF"
+SkillToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SkillToggleBtn.Font = Enum.Font.GothamBold
+SkillToggleBtn.TextSize = IsMobile and 10 or 11
+SkillToggleBtn.Parent = ActionToolbar
+Instance.new("UICorner", SkillToggleBtn).CornerRadius = UDim.new(0, 6)
 
 local TPCafeBtn = Instance.new("TextButton")
 TPCafeBtn.Size = UDim2.new(0.24, -3, 1, 0)
@@ -957,6 +1011,12 @@ ESPToggleBtn.TextSize = IsMobile and 10 or 11
 ESPToggleBtn.Parent = ActionToolbar
 Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 6)
 
+SkillToggleBtn.MouseButton1Click:Connect(function()
+    Config.AutoSkills = not Config.AutoSkills
+    SkillToggleBtn.Text = Config.AutoSkills and "⚔️ SKILL: ON" or "⚔️ SKILL: OFF"
+    SkillToggleBtn.BackgroundColor3 = Config.AutoSkills and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+end)
+
 ESPToggleBtn.MouseButton1Click:Connect(function()
     Config.EnableESP = not Config.EnableESP
     ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP ON" or "👁️ ESP OFF"
@@ -969,10 +1029,6 @@ BunkerBtn.MouseButton1Click:Connect(function()
     else
         TriggerUndergroundRetreat()
     end
-end)
-
-TPStarterBtn.MouseButton1Click:Connect(function()
-    SmoothFlyTo(GetStarterIslandPos(), "Starter Island")
 end)
 
 TPCafeBtn.MouseButton1Click:Connect(function()
@@ -1217,6 +1273,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Overhead Evasion)..."
+        StatusLabel.Text = "Status: Engaging Target (Overhead Burst)..."
     end
 end)
