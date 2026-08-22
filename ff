@@ -1,12 +1,12 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.2 (EVASIVE BLINDSPOT)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.3 (ANTI-ROLLBACK FLIGHT)
 -- Features:
---  1. Dynamic Blindspot Evasion (เกาะติดหลังหัว + สลับมุมหลบการโจมตีสวนกลับ 100%)
---  2. Instant Post-Kill Free Movement (ฆ่าเสร็จคืนค่าการเคลื่อนไหว 100% เดิน/กระโดดได้ทันที)
---  3. Dedicated Auto M1 Rapid-Fire Engine (ตีธรรมดาออโต้ความเร็วสูง 0.025s)
---  4. Multi-Weapon Combo Protocol: หมัด (Melee) -> ดาบ (Sword) -> ผล (Fruit)
---  5. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
---  6. Dynamic Lock-On Aim (ล็อคเป้าและมุมกล้อง)
+--  1. Anti-Rollback Smooth Flight Engine (แก้ปัญหาโดนเซิร์ฟดึงกลับ บินเนียน 100%)
+--  2. Dynamic Blindspot Evasion (เกาะติดหลังหัว + สลับมุมหลบการโจมตีสวนกลับ)
+--  3. Instant Post-Kill Free Movement (ฆ่าเสร็จคืนค่าการเคลื่อนไหว 100% เดิน/กระโดดได้ทันที)
+--  4. Dedicated Auto M1 Rapid-Fire Engine (ตีธรรมดาออโต้ความเร็วสูง 0.025s)
+--  5. Multi-Weapon Combo Protocol: หมัด (Melee) -> ดาบ (Sword) -> ผล (Fruit)
+--  6. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
 --  7. 3D Billboard ESP, Taunt Engine & Radar Dashboard
 --  8. Auto Buffs (Buso Haki, Ken Haki, Race V3)
 -- =========================================================================
@@ -29,9 +29,9 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 350,               -- ความเร็วพุ่งเข้าหาเป้าหมาย
-    StickDistance = 0.8,          -- ระยะประชิดติดหลัง (Studs) ยิ่งน้อยยิ่งแนบเนื้อ
-    HeightOffset = 1.2,           -- ระดับความสูงเหนือหัว/ไหล่ (หลบฮิตบ็อกซ์พื้นและสกิลเส้นตรง)
+    FlySpeed = 295,               -- ความเร็วบินที่ปลอดภัยจาก Anti-Cheat Rollback (280-310 ปลอดภัยสุด)
+    StickDistance = 0.8,          -- ระยะประชิดติดหลัง (Studs)
+    HeightOffset = 1.2,           -- ระดับความสูงเหนือหัว/ไหล่
     EvasionSpeed = 16,            -- ความเร็วในการส่ายสเต็ปหลบหลัง
     EvasionRadius = 1.0,          -- รัศมีการส่ายหลบมุมมองศัตรู
     
@@ -112,7 +112,7 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- INSTANT NORMAL MOVEMENT RESTORE (คืนค่าการเดินปกติ 100%)
+-- INSTANT NORMAL MOVEMENT RESTORE
 -- =========================================================================
 local function RestoreNormalMovement()
     local myChar = GetChar(LocalPlayer)
@@ -132,6 +132,7 @@ local function RestoreNormalMovement()
     if myHum then
         myHum.PlatformStand = false
         myHum.Sit = false
+        myHum.AutoRotate = true
     end
 
     if not AppState.IsSpectating and myHum then
@@ -618,7 +619,6 @@ local FullComboSequence = {
     { Category = "Blox Fruit", Key = Enum.KeyCode.V, Hold = 0.06, Delay = 0.14, Name = "Fruit V" },
 }
 
--- เธรดยัดสกิลคอมโบสลับ 3 อาวุธ
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky then
@@ -636,16 +636,13 @@ task.spawn(function()
                         targetRoot = GetRoot(targetChar)
                         if not targetChar or not targetRoot or targetChar.Parent == nil then break end
 
-                        -- 1. สลับอาวุธตาม Phase
                         EquipWeaponCategory(step.Category)
                         task.wait(Config.WeaponSwitchDelay)
 
-                        -- 2. ล็อคมุมกล้องจ้องเป้าหมาย
                         pcall(function()
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
                         end)
 
-                        -- 3. กดสกิล
                         pcall(function()
                             VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
                             task.wait(step.Hold)
@@ -663,26 +660,33 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- PHYSICS & MOVEMENT CONTROLLER
+-- ANTI-ROLLBACK PHYSICS CONTROLLER
 -- =========================================================================
-local function ApplyPhysics(myRoot)
+local function ApplyAntiRollbackPhysics(myRoot)
     if not myRoot then return end
-    local bv = myRoot:FindFirstChild("BountyBV") or Instance.new("BodyVelocity")
-    bv.Name = "BountyBV"
-    bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    bv.Velocity = Vector3.zero
-    bv.Parent = myRoot
+    
+    local bv = myRoot:FindFirstChild("BountyBV")
+    if not bv then
+        bv = Instance.new("BodyVelocity")
+        bv.Name = "BountyBV"
+        bv.MaxForce = Vector3.new(100000, 100000, 100000)
+        bv.Velocity = Vector3.zero
+        bv.Parent = myRoot
+    end
 
-    local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
-    bg.Name = "BountyBG"
-    bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 25000
-    bg.D = 100
-    bg.Parent = myRoot
+    local bg = myRoot:FindFirstChild("BountyBG")
+    if not bg then
+        bg = Instance.new("BodyGyro")
+        bg.Name = "BountyBG"
+        bg.MaxTorque = Vector3.new(100000, 100000, 100000)
+        bg.P = 30000
+        bg.D = 500
+        bg.Parent = myRoot
+    end
 end
 
 -- =========================================================================
--- DYNAMIC BLINDSPOT EVASION TRACKER (เกาะติดหลังหัว + สลับมุมหลบ)
+-- DYNAMIC ANTI-ROLLBACK FLIGHT & BLINDSPOT TRACKER
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
@@ -704,7 +708,7 @@ RunService.Heartbeat:Connect(function()
             AppState.IsHealingInSky = true
             AppState.CurrentCombatStatus = string.format("HEALING: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
             
-            ApplyPhysics(myRoot)
+            ApplyAntiRollbackPhysics(myRoot)
             EnsureKen()
             
             local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
@@ -723,7 +727,7 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย -> คืนค่าการเดินปกติทันที
+    -- ตรวจสอบการตายของเป้าหมาย
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         StopHunt("Target Eliminated! Movement 100% Free")
         return
@@ -741,39 +745,47 @@ RunService.Heartbeat:Connect(function()
     EnsureBuso()
     EnsureKen()
     TriggerRaceSkill()
-    ApplyPhysics(myRoot)
+    ApplyAntiRollbackPhysics(myRoot)
 
-    -- คำนวณตำแหน่ง Evasive Blindspot (หลบหลังหัว + ส่ายมุมหลบสกิลสวนกลับ)
-    local evasionTime = tick() * Config.EvasionSpeed
-    local strafeOffset = math.sin(evasionTime) * Config.EvasionRadius
-    local verticalBob = math.cos(evasionTime * 0.8) * 0.3
+    myHum.AutoRotate = false
 
-    -- ตำแหน่งคำนวณจาก CFrame ของเป้าหมาย เพื่อให้อยู่ด้านหลังเสมอไม่ว่าศัตรูจะหันไปทางไหน
-    local stickCFrame = targetRoot.CFrame * CFrame.new(strafeOffset, Config.HeightOffset + verticalBob, Config.StickDistance)
-    local targetPos = stickCFrame.Position
-    local currentPos = myRoot.Position
-    local diff = targetPos - currentPos
-    local dist = diff.Magnitude
-
-    local bg = myRoot:FindFirstChild("BountyBG")
+    local distToTarget = (targetRoot.Position - myRoot.Position).Magnitude
     local bv = myRoot:FindFirstChild("BountyBV")
+    local bg = myRoot:FindFirstChild("BountyBG")
 
-    if dist > 3.0 then
-        -- กำลังพุ่งเข้าประชิดตัว
-        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
+    if distToTarget > 6.0 then
+        -- =========================================================================
+        -- PHASE 1: ANTI-ROLLBACK LONG-DISTANCE FLIGHT (ไม่เซ็ต CFrame บินด้วย Physics ล้วน)
+        -- =========================================================================
+        AppState.CurrentCombatStatus = "Flying to Target (" .. math.floor(distToTarget) .. "m)"
+        
+        local flyTargetPos = targetRoot.Position + Vector3.new(0, 3, 0)
+        local moveDirection = (flyTargetPos - myRoot.Position).Unit
+
         if bv then
-            bv.Velocity = diff.Unit * math.min(Config.FlySpeed, dist * 38)
+            bv.Velocity = moveDirection * Config.FlySpeed
+        end
+        if bg then
+            bg.CFrame = CFrame.lookAt(myRoot.Position, flyTargetPos)
+        end
+    else
+        -- =========================================================================
+        -- PHASE 2: BLINDSPOT COMBAT LOCK (เข้าประชิดแล้ว ล็อคติดหลังหัว 100%)
+        -- =========================================================================
+        local evasionTime = tick() * Config.EvasionSpeed
+        local strafeOffset = math.sin(evasionTime) * Config.EvasionRadius
+        local verticalBob = math.cos(evasionTime * 0.8) * 0.3
+
+        local stickCFrame = targetRoot.CFrame * CFrame.new(strafeOffset, Config.HeightOffset + verticalBob, Config.StickDistance)
+        local targetPos = stickCFrame.Position
+
+        if bv then 
+            bv.Velocity = targetRoot.AssemblyLinearVelocity 
         end
         if bg then
             bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
         end
-    else
-        -- เข้าประชิดตัวแล้ว -> ล็อคติดหลังหัวแบบ Realtime + ตามแรงเฉื่อยเป้าหมาย ป้องกันการหลุด
-        if bv then 
-            bv.Velocity = targetRoot.AssemblyLinearVelocity 
-        end
-        
-        -- ดูด CFrame ตัวเราติดหลังเป้าหมายทันที ศัตรูหมุนตัวเราก็หมุนตามอยู่ข้างหลังตลอด
+
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
         AppState.CurrentCombatStatus = "Blindspot Locked: Auto M1 + Burst"
@@ -856,7 +868,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v9.2 (BLINDSPOT EVASION)"
+Header.Text = "  ⚡ BOUNTY GOD v9.3 (ANTI-ROLLBACK)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -1152,6 +1164,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Blindspot Lock)..."
+        StatusLabel.Text = "Status: Engaging Target (Anti-Rollback)..."
     end
 end)
