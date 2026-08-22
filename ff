@@ -1,14 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.3 (ANTI-ROLLBACK FLIGHT)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.5 (ESP + MAX SKY RETREAT)
 -- Features:
---  1. Anti-Rollback Smooth Flight Engine (แก้ปัญหาโดนเซิร์ฟดึงกลับ บินเนียน 100%)
---  2. Dynamic Blindspot Evasion (เกาะติดหลังหัว + สลับมุมหลบการโจมตีสวนกลับ)
---  3. Instant Post-Kill Free Movement (ฆ่าเสร็จคืนค่าการเคลื่อนไหว 100% เดิน/กระโดดได้ทันที)
---  4. Dedicated Auto M1 Rapid-Fire Engine (ตีธรรมดาออโต้ความเร็วสูง 0.025s)
---  5. Multi-Weapon Combo Protocol: หมัด (Melee) -> ดาบ (Sword) -> ผล (Fruit)
---  6. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
---  7. 3D Billboard ESP, Taunt Engine & Radar Dashboard
---  8. Auto Buffs (Buso Haki, Ken Haki, Race V3)
+--  1. Real-Time 3D ESP & Wallhack Radar (Name, HP, Distance, Level, Status)
+--  2. Auto Max Sky Altitude Orbit (1,500 Studs) Immediately After Every Kill
+--  3. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework Hook)
+--  4. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
+--  5. Auto Buffs (Buso, Ken, Race V3) + Emergency Sky Healing
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -19,7 +16,6 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TextChatService = game:GetService("TextChatService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -29,40 +25,26 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 295,               -- ความเร็วบินที่ปลอดภัยจาก Anti-Cheat Rollback (280-310 ปลอดภัยสุด)
-    StickDistance = 0.8,          -- ระยะประชิดติดหลัง (Studs)
-    HeightOffset = 1.2,           -- ระดับความสูงเหนือหัว/ไหล่
-    EvasionSpeed = 16,            -- ความเร็วในการส่ายสเต็ปหลบหลัง
-    EvasionRadius = 1.0,          -- รัศมีการส่ายหลบมุมมองศัตรู
+    FlySpeed = 300,
+    StickDistance = 1.2,          -- ระยะเกาะหลังศัตรู
+    HeightOffset = 0.5,           -- ระดับความสูง
+    M1AttackSpeed = 0.05,         -- ความเร็วในการสแปม M1
+    PrimaryWeapon = "Melee",      -- อาวุธหลัก: "Melee", "Sword", "Blox Fruit"
+    HitboxSize = 80,              -- รัศมีฮิตบ็อกซ์
     
-    -- AUTO M1 ATTACK SETTINGS
-    AutoM1 = true,                -- เปิดระบบตีธรรมดาอัตโนมัติ
-    M1AttackSpeed = 0.025,        -- จังหวะรัวตีธรรมดา M1 (0.025s)
-    HitboxSize = 90,              -- รัศมีฮิตบ็อกซ์โจมตี
+    -- ESP SETTINGS
+    EnableESP = true,             -- เปิด/ปิด ระบบ 3D ESP
+    ESPTextSize = 11,
     
-    -- COMBO ROTATION SETTINGS (หมัด -> ดาบ -> ผล)
-    EnableComboRotation = true,   -- เปิดใช้งานคอมโบสลับ 3 อาวุธ
-    WeaponSwitchDelay = 0.04,     -- ดีเลย์ตอนสลับอาวุธ
-    
-    -- TAUNT SETTINGS
-    AutoTaunt = true,             -- พิมพ์ยั่วยุเปิดสถานะต่อสู้
-    TauntCooldown = 6.0,          -- ระยะห่างการพิมพ์ยั่วยุ
-    
-    -- NOCLIP
-    PermanentNoClip = true,       -- เดินทะลุกำแพงตลอดเวลา
-    
-    -- SURVIVAL
+    -- SURVIVAL & RETREAT TO MAX SKY
+    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุด (1,500 Studs กันตาย 100%)
+    PostKillSkyDuration = 5.0,    -- ระยะเวลาลอยค้างบนฟ้าหลังฆ่าสำเร็จ (วินาที)
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
     EmergencyEscape = true,
-    EmergencyHPThreshold = 35,
-    RecoveryHPThreshold = 85,
-    EscapeSkyAltitude = 450,
-    
-    -- ESP
-    EnableESP = true,
-    ESPTextSize = 11
+    EmergencyHPThreshold = 40,
+    RecoveryHPThreshold = 95
 }
 
 local Stats = {
@@ -79,6 +61,7 @@ local AppState = {
     IsHunting = false,
     IsSpectating = false,
     IsHealingInSky = false,
+    IsRetreating = false,
     CurrentCombatStatus = "Idle"
 }
 
@@ -110,140 +93,6 @@ end
 
 Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
-
--- =========================================================================
--- INSTANT NORMAL MOVEMENT RESTORE
--- =========================================================================
-local function RestoreNormalMovement()
-    local myChar = GetChar(LocalPlayer)
-    local myRoot = GetRoot(myChar)
-    local myHum = GetHum(myChar)
-
-    if myRoot then
-        if myRoot:FindFirstChild("BountyBV") then myRoot.BountyBV:Destroy() end
-        if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
-        for _, obj in ipairs(myRoot:GetChildren()) do
-            if obj:IsA("BodyVelocity") or obj:IsA("BodyGyro") or obj:IsA("BodyPosition") or obj:IsA("LinearVelocity") or obj:IsA("AlignPosition") then
-                obj:Destroy()
-            end
-        end
-    end
-
-    if myHum then
-        myHum.PlatformStand = false
-        myHum.Sit = false
-        myHum.AutoRotate = true
-    end
-
-    if not AppState.IsSpectating and myHum then
-        Camera.CameraSubject = myHum
-    end
-end
-
-local function StopHunt(reason)
-    AppState.IsHunting = false
-    AppState.IsHealingInSky = false
-    AppState.SelectedPlayer = nil
-    AppState.CurrentCombatStatus = reason or "Idle (Movement 100% Free)"
-    RestoreNormalMovement()
-end
-
--- =========================================================================
--- WEAPON CONTROLLER (SMART MULTI-WEAPON EQUIPPER)
--- =========================================================================
-local function EquipWeaponCategory(category)
-    local char = GetChar(LocalPlayer)
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    local hum = GetHum(char)
-    if not char or not hum then return nil end
-
-    local currentTool = char:FindFirstChildOfClass("Tool")
-    if currentTool then
-        local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or (currentTool:GetAttribute("WeaponType") or "")
-        if tType:lower():find(category:lower()) or currentTool.Name:lower():find(category:lower()) then
-            return currentTool
-        end
-    end
-
-    if bp then
-        for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") then
-                local tType = tool.ToolTip ~= "" and tool.ToolTip or (tool:GetAttribute("WeaponType") or "")
-                if tType:lower():find(category:lower()) or tool.Name:lower():find(category:lower()) then
-                    hum:EquipTool(tool)
-                    return tool
-                end
-            end
-        end
-    end
-    return currentTool
-end
-
--- =========================================================================
--- AUTO CHAT TAUNT
--- =========================================================================
-local DefaultChatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-local SayMessageRequest = DefaultChatEvents and DefaultChatEvents:FindFirstChild("SayMessageRequest")
-
-local TauntPhrases = {
-    "1v1 me bro?",
-    "why running ez?",
-    "hit me if you can lol",
-    "free bounty here",
-    "oil up lil bro",
-    "come at me 6767"
-}
-
-local lastTauntTick = 0
-local function SendTauntMessage(targetPlayer)
-    if not Config.AutoTaunt or (tick() - lastTauntTick < Config.TauntCooldown) or not targetPlayer then return end
-    lastTauntTick = tick()
-
-    local phrase = TauntPhrases[math.random(1, #TauntPhrases)]
-    local targetName = targetPlayer.DisplayName or targetPlayer.Name
-    local fullMessage = targetName .. " " .. phrase
-
-    task.spawn(function()
-        pcall(function()
-            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-                local textChannel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
-                if textChannel then
-                    textChannel:SendAsync(fullMessage)
-                end
-            elseif SayMessageRequest then
-                SayMessageRequest:FireServer(fullMessage, "All")
-            end
-        end)
-    end)
-end
-
--- =========================================================================
--- PERMANENT NOCLIP ENGINE
--- =========================================================================
-RunService.Stepped:Connect(function()
-    if Config.PermanentNoClip or AppState.IsHunting or AppState.IsHealingInSky then
-        local myChar = GetChar(LocalPlayer)
-        if myChar then
-            for _, part in ipairs(myChar:GetDescendants()) do
-                if part:IsA("BasePart") and part.CanCollide then
-                    part.CanCollide = false
-                end
-            end
-        end
-    end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function(newChar)
-    task.wait(0.5)
-    RestoreNormalMovement()
-    if Config.PermanentNoClip then
-        for _, part in ipairs(newChar:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
-    end
-end)
 
 -- =========================================================================
 -- TARGET STATUS CHECKER
@@ -331,7 +180,7 @@ local function CheckTargetStatus(player)
 end
 
 -- =========================================================================
--- 3D ESP SYSTEM
+-- 3D ESP SYSTEM (NAME, HEALTH, DISTANCE, STATUS)
 -- =========================================================================
 local ESPFolder = Instance.new("Folder")
 ESPFolder.Name = "BountyGod_ESP"
@@ -498,7 +347,43 @@ local function TriggerRaceSkill()
 end
 
 -- =========================================================================
--- HIGH-SPEED AUTO M1 ATTACK ENGINE
+-- WEAPON CONTROLLER
+-- =========================================================================
+local function EquipWeapon(weaponType)
+    local char = GetChar(LocalPlayer)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local hum = GetHum(char)
+    if not char or not hum then return nil end
+
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if currentTool then
+        local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or currentTool:GetAttribute("WeaponType")
+        if not weaponType or tType == weaponType or currentTool.Name:lower():find(weaponType:lower()) then
+            return currentTool
+        end
+    end
+
+    if bp then
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") then
+                local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
+                if not weaponType or tType == weaponType or tool.Name:lower():find(weaponType:lower()) then
+                    hum:EquipTool(tool)
+                    return tool
+                end
+            end
+        end
+        local first = bp:FindFirstChildOfClass("Tool")
+        if first then
+            hum:EquipTool(first)
+            return first
+        end
+    end
+    return currentTool
+end
+
+-- =========================================================================
+-- ADVANCED COMBAT FRAMEWORK HOOK & M1 FAST ATTACK ENGINE
 -- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
@@ -514,8 +399,18 @@ local function ResolveCombatController()
         local cfModule = ps:FindFirstChild("CombatFramework")
         if cfModule and cfModule:IsA("ModuleScript") then
             CombatFramework = require(cfModule)
-            if typeof(CombatFramework) == "table" and CombatFramework.activeController then
-                CombatController = CombatFramework.activeController
+            if typeof(CombatFramework) == "table" then
+                if CombatFramework.activeController then
+                    CombatController = CombatFramework.activeController
+                elseif getupvalues then
+                    local upvs = getupvalues(CombatFramework)
+                    for _, val in pairs(upvs) do
+                        if typeof(val) == "table" and rawget(val, "activeController") then
+                            CombatController = val.activeController
+                            break
+                        end
+                    end
+                end
             end
         end
     end)
@@ -527,7 +422,7 @@ local RegisterAttack = Net and (Net:FindFirstChild("RE/RegisterAttack") or Net:F
 local RegisterHit = Net and (Net:FindFirstChild("RE/RegisterHit") or Net:FindFirstChild("RegisterHit"))
 
 local comboStep = 1
-local function ExecuteAutoM1(targetChar, targetRoot)
+local function ExecuteM1Combo()
     local myChar = GetChar(LocalPlayer)
     local myHum = GetHum(myChar)
     if not myChar or not myHum or myHum.Health <= 0 then return end
@@ -536,8 +431,15 @@ local function ExecuteAutoM1(targetChar, targetRoot)
     myHum.PlatformStand = false
 
     local tool = myChar:FindFirstChildOfClass("Tool")
+    if not tool or (Config.PrimaryWeapon and not tool.Name:lower():find(Config.PrimaryWeapon:lower()) and tool.ToolTip ~= Config.PrimaryWeapon) then
+        tool = EquipWeapon(Config.PrimaryWeapon)
+    end
 
-    -- 1. Hook Combat Controller
+    local targetChar = AppState.SelectedPlayer and GetChar(AppState.SelectedPlayer)
+    local targetRoot = targetChar and GetRoot(targetChar)
+    local targetHum = targetChar and GetHum(targetChar)
+
+    -- 1. Hook Active Combat Controller
     local controller = ResolveCombatController()
     if controller then
         pcall(function()
@@ -556,18 +458,23 @@ local function ExecuteAutoM1(targetChar, targetRoot)
         end)
     end
 
-    -- 2. Send Packet Stream
+    -- 2. Direct Network Packet Fire (RegisterAttack & RegisterHit)
     if RegisterAttack then
-        pcall(function() RegisterAttack:FireServer(0) end)
-    end
-
-    if RegisterHit and targetRoot and targetChar and targetChar.Parent then
         pcall(function()
-            RegisterHit:FireServer(targetRoot, { { targetChar, targetRoot } })
+            RegisterAttack:FireServer(0)
         end)
     end
 
-    -- 3. Tool Activation & Mouse Click Emulation
+    if RegisterHit and targetRoot and targetHum and targetHum.Health > 0 then
+        pcall(function()
+            local hitList = {
+                { targetChar, targetRoot }
+            }
+            RegisterHit:FireServer(targetRoot, hitList)
+        end)
+    end
+
+    -- 3. Tool Direct Trigger & Click Emulation
     if tool then
         pcall(function() tool:Activate() end)
     end
@@ -577,12 +484,17 @@ local function ExecuteAutoM1(targetChar, targetRoot)
         VirtualUser:Button1Down(Vector2.new(0, 0))
         VirtualUser:Button1Up(Vector2.new(0, 0))
     end)
+    
+    pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+    end)
 end
 
--- ลูป Auto M1 ตีธรรมดาอัตโนมัติความเร็วสูง (0.025s)
+-- ลูป M1 อัตโนมัติ
 task.spawn(function()
     while true do
-        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and Config.AutoM1 then
+        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
             local targetChar = GetChar(AppState.SelectedPlayer)
             local myChar = GetChar(LocalPlayer)
             local targetRoot = GetRoot(targetChar)
@@ -590,8 +502,8 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 30 then
-                    ExecuteAutoM1(targetChar, targetRoot)
+                if dist <= 25 then
+                    ExecuteM1Combo()
                 end
             end
         end
@@ -600,95 +512,97 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- FULL MULTI-WEAPON COMBO ROTATION (หมัด -> ดาบ -> ผล)
+-- PHYSICS & MOVEMENT CONTROLLER
 -- =========================================================================
-local FullComboSequence = {
-    -- PHASE 1: หมัด (MELEE)
-    { Category = "Melee", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.10, Name = "Melee Z" },
-    { Category = "Melee", Key = Enum.KeyCode.X, Hold = 0.04, Delay = 0.10, Name = "Melee X" },
-    { Category = "Melee", Key = Enum.KeyCode.C, Hold = 0.06, Delay = 0.12, Name = "Melee C" },
+local function ApplyPhysics(myRoot)
+    if not myRoot then return end
+    local bv = myRoot:FindFirstChild("BountyBV") or Instance.new("BodyVelocity")
+    bv.Name = "BountyBV"
+    bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    bv.Velocity = Vector3.zero
+    bv.Parent = myRoot
 
-    -- PHASE 2: ดาบ (SWORD)
-    { Category = "Sword", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.10, Name = "Sword Z" },
-    { Category = "Sword", Key = Enum.KeyCode.X, Hold = 0.06, Delay = 0.12, Name = "Sword X" },
+    local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
+    bg.Name = "BountyBG"
+    bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+    bg.P = 15000
+    bg.Parent = myRoot
+end
 
-    -- PHASE 3: ผลปีศาจ (BLOX FRUIT)
-    { Category = "Blox Fruit", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.10, Name = "Fruit Z" },
-    { Category = "Blox Fruit", Key = Enum.KeyCode.X, Hold = 0.04, Delay = 0.10, Name = "Fruit X" },
-    { Category = "Blox Fruit", Key = Enum.KeyCode.C, Hold = 0.06, Delay = 0.12, Name = "Fruit C" },
-    { Category = "Blox Fruit", Key = Enum.KeyCode.V, Hold = 0.06, Delay = 0.14, Name = "Fruit V" },
-}
+local function RemovePhysics(myRoot)
+    if not myRoot then return end
+    if myRoot:FindFirstChild("BountyBV") then myRoot.BountyBV:Destroy() end
+    if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
+end
 
-task.spawn(function()
-    while true do
-        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky then
-            local targetChar = GetChar(AppState.SelectedPlayer)
-            local targetRoot = GetRoot(targetChar)
-            local myRoot = GetRoot(GetChar(LocalPlayer))
-
-            if targetChar and targetRoot and myRoot and targetChar.Parent then
-                local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 28 and Config.EnableComboRotation then
-                    for _, step in ipairs(FullComboSequence) do
-                        if not AppState.IsHunting then break end
-
-                        targetChar = GetChar(AppState.SelectedPlayer)
-                        targetRoot = GetRoot(targetChar)
-                        if not targetChar or not targetRoot or targetChar.Parent == nil then break end
-
-                        EquipWeaponCategory(step.Category)
-                        task.wait(Config.WeaponSwitchDelay)
-
-                        pcall(function()
-                            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-                        end)
-
-                        pcall(function()
-                            VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
-                            task.wait(step.Hold)
-                            VirtualInputManager:SendKeyEvent(false, step.Key, false, game)
-                        end)
-                        task.wait(step.Delay)
-                    end
-                else
-                    EquipWeaponCategory("Melee")
+RunService.Stepped:Connect(function()
+    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
+        local myChar = GetChar(LocalPlayer)
+        if myChar then
+            for _, part in ipairs(myChar:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
                 end
             end
         end
-        task.wait(0.08)
     end
 end)
 
--- =========================================================================
--- ANTI-ROLLBACK PHYSICS CONTROLLER
--- =========================================================================
-local function ApplyAntiRollbackPhysics(myRoot)
-    if not myRoot then return end
-    
-    local bv = myRoot:FindFirstChild("BountyBV")
-    if not bv then
-        bv = Instance.new("BodyVelocity")
-        bv.Name = "BountyBV"
-        bv.MaxForce = Vector3.new(100000, 100000, 100000)
-        bv.Velocity = Vector3.zero
-        bv.Parent = myRoot
-    end
-
-    local bg = myRoot:FindFirstChild("BountyBG")
-    if not bg then
-        bg = Instance.new("BodyGyro")
-        bg.Name = "BountyBG"
-        bg.MaxTorque = Vector3.new(100000, 100000, 100000)
-        bg.P = 30000
-        bg.D = 500
-        bg.Parent = myRoot
-    end
+local function StopHunt(reason)
+    AppState.IsHunting = false
+    AppState.IsHealingInSky = false
+    AppState.CurrentCombatStatus = reason or "Idle"
+    local myChar = GetChar(LocalPlayer)
+    RemovePhysics(GetRoot(myChar))
 end
 
 -- =========================================================================
--- DYNAMIC ANTI-ROLLBACK FLIGHT & BLINDSPOT TRACKER
+-- POST-KILL MAXIMUM SKY RETREAT (ORBIT SHIELD)
+-- =========================================================================
+local function TriggerMaxSkyRetreat()
+    if AppState.IsRetreating then return end
+    AppState.IsHunting = false
+    AppState.IsRetreating = true
+    AppState.CurrentCombatStatus = string.format("TARGET ELIMINATED! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
+
+    task.spawn(function()
+        local start = tick()
+        while (tick() - start < Config.PostKillSkyDuration) do
+            local myChar = GetChar(LocalPlayer)
+            local myRoot = GetRoot(myChar)
+            local myHum = GetHum(myChar)
+
+            if myRoot and myHum and myHum.Health > 0 then
+                ApplyPhysics(myRoot)
+                EnsureKen()
+                EnsureBuso()
+                
+                local maxSkyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
+                local diff = maxSkyPos - myRoot.Position
+                local bv = myRoot:FindFirstChild("BountyBV")
+                if bv then
+                    bv.Velocity = diff.Magnitude > 15 and diff.Unit * (Config.FlySpeed + 100) or Vector3.zero
+                end
+            end
+            task.wait(0.05)
+        end
+
+        local myChar = GetChar(LocalPlayer)
+        local myRoot = GetRoot(myChar)
+        local bv = myRoot and myRoot:FindFirstChild("BountyBV")
+        if bv then bv.Velocity = Vector3.zero end
+
+        AppState.IsRetreating = false
+        AppState.SelectedPlayer = nil
+        StopHunt("Elimination Safe (Ready for Next Target)")
+    end)
+end
+
+-- =========================================================================
+-- MAIN COMBAT & NAVIGATION ENGINE LOOP
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
+    if AppState.IsRetreating then return end
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
 
     local myChar = GetChar(LocalPlayer)
@@ -706,16 +620,17 @@ RunService.Heartbeat:Connect(function()
     if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("HEALING: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
+            AppState.CurrentCombatStatus = string.format("EMERGENCY ESCAPE: Max Sky Healing (%d%% HP)", math.floor(currentHpPercent))
             
-            ApplyAntiRollbackPhysics(myRoot)
+            ApplyPhysics(myRoot)
             EnsureKen()
+            EnsureBuso()
             
-            local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
+            local skyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
             local diff = skyPos - myRoot.Position
             local bv = myRoot:FindFirstChild("BountyBV")
             if bv then
-                bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
+                bv.Velocity = diff.Magnitude > 15 and diff.Unit * Config.FlySpeed or Vector3.zero
             end
             return
         else
@@ -727,9 +642,9 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย
+    -- ตรวจสอบการตายของเป้าหมาย -> ลอยขึ้นฟ้าสูงสุดทันที
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
-        StopHunt("Target Eliminated! Movement 100% Free")
+        TriggerMaxSkyRetreat()
         return
     end
 
@@ -745,52 +660,33 @@ RunService.Heartbeat:Connect(function()
     EnsureBuso()
     EnsureKen()
     TriggerRaceSkill()
-    ApplyAntiRollbackPhysics(myRoot)
+    ApplyPhysics(myRoot)
 
-    myHum.AutoRotate = false
+    -- คำนวณตำแหน่งแนบหลัง 1.2 Studs
+    local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
+    local targetPos = stickCFrame.Position
+    local currentPos = myRoot.Position
+    local dist = (targetPos - currentPos).Magnitude
 
-    local distToTarget = (targetRoot.Position - myRoot.Position).Magnitude
-    local bv = myRoot:FindFirstChild("BountyBV")
     local bg = myRoot:FindFirstChild("BountyBG")
+    if bg then
+        bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
+    end
 
-    if distToTarget > 6.0 then
-        -- =========================================================================
-        -- PHASE 1: ANTI-ROLLBACK LONG-DISTANCE FLIGHT (ไม่เซ็ต CFrame บินด้วย Physics ล้วน)
-        -- =========================================================================
-        AppState.CurrentCombatStatus = "Flying to Target (" .. math.floor(distToTarget) .. "m)"
-        
-        local flyTargetPos = targetRoot.Position + Vector3.new(0, 3, 0)
-        local moveDirection = (flyTargetPos - myRoot.Position).Unit
-
+    if dist > 3.5 then
+        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
+        local dir = (targetPos - currentPos).Unit
+        local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = moveDirection * Config.FlySpeed
-        end
-        if bg then
-            bg.CFrame = CFrame.lookAt(myRoot.Position, flyTargetPos)
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 30)
         end
     else
-        -- =========================================================================
-        -- PHASE 2: BLINDSPOT COMBAT LOCK (เข้าประชิดแล้ว ล็อคติดหลังหัว 100%)
-        -- =========================================================================
-        local evasionTime = tick() * Config.EvasionSpeed
-        local strafeOffset = math.sin(evasionTime) * Config.EvasionRadius
-        local verticalBob = math.cos(evasionTime * 0.8) * 0.3
-
-        local stickCFrame = targetRoot.CFrame * CFrame.new(strafeOffset, Config.HeightOffset + verticalBob, Config.StickDistance)
-        local targetPos = stickCFrame.Position
-
-        if bv then 
-            bv.Velocity = targetRoot.AssemblyLinearVelocity 
-        end
-        if bg then
-            bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
-        end
-
+        local bv = myRoot:FindFirstChild("BountyBV")
+        if bv then bv.Velocity = Vector3.zero end
+        
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Blindspot Locked: Auto M1 + Burst"
-        
-        SendTauntMessage(AppState.SelectedPlayer)
+        AppState.CurrentCombatStatus = "Executing M1 Combo Chain..."
     end
 end)
 
@@ -842,8 +738,8 @@ end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.82, 0) or UDim2.new(0, 560, 0, 470)
-MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.09, 0) or UDim2.new(0.5, -280, 0.5, -235)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.82, 0) or UDim2.new(0, 570, 0, 480)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.08, 0) or UDim2.new(0.5, -285, 0.5, -240)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -868,48 +764,13 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v9.3 (ANTI-ROLLBACK)"
+Header.Text = "  ⚡ BOUNTY GOD v7.5 (ESP + MAX SKY RETREAT)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
 Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
-
--- ACTION BUTTONS
-local M1ToggleBtn = Instance.new("TextButton")
-M1ToggleBtn.Size = UDim2.new(0, 80, 0, 24)
-M1ToggleBtn.Position = UDim2.new(1, -260, 0, 7)
-M1ToggleBtn.BackgroundColor3 = Config.AutoM1 and Color3.fromRGB(0, 200, 83) or Color3.fromRGB(100, 100, 100)
-M1ToggleBtn.Text = Config.AutoM1 and "👊 M1: ON" or "👊 M1: OFF"
-M1ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-M1ToggleBtn.Font = Enum.Font.GothamBold
-M1ToggleBtn.TextSize = 10
-M1ToggleBtn.Parent = Header
-Instance.new("UICorner", M1ToggleBtn).CornerRadius = UDim.new(0, 4)
-
-M1ToggleBtn.MouseButton1Click:Connect(function()
-    Config.AutoM1 = not Config.AutoM1
-    M1ToggleBtn.Text = Config.AutoM1 and "👊 M1: ON" or "👊 M1: OFF"
-    M1ToggleBtn.BackgroundColor3 = Config.AutoM1 and Color3.fromRGB(0, 200, 83) or Color3.fromRGB(100, 100, 100)
-end)
-
-local NoClipBtn = Instance.new("TextButton")
-NoClipBtn.Size = UDim2.new(0, 80, 0, 24)
-NoClipBtn.Position = UDim2.new(1, -175, 0, 7)
-NoClipBtn.BackgroundColor3 = Config.PermanentNoClip and Color3.fromRGB(0, 122, 255) or Color3.fromRGB(100, 100, 100)
-NoClipBtn.Text = Config.PermanentNoClip and "NOCLIP: ON" or "NOCLIP: OFF"
-NoClipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-NoClipBtn.Font = Enum.Font.GothamBold
-NoClipBtn.TextSize = 10
-NoClipBtn.Parent = Header
-Instance.new("UICorner", NoClipBtn).CornerRadius = UDim.new(0, 4)
-
-NoClipBtn.MouseButton1Click:Connect(function()
-    Config.PermanentNoClip = not Config.PermanentNoClip
-    NoClipBtn.Text = Config.PermanentNoClip and "NOCLIP: ON" or "NOCLIP: OFF"
-    NoClipBtn.BackgroundColor3 = Config.PermanentNoClip and Color3.fromRGB(0, 122, 255) or Color3.fromRGB(100, 100, 100)
-end)
 
 local ESPToggleBtn = Instance.new("TextButton")
 ESPToggleBtn.Size = UDim2.new(0, 80, 0, 24)
@@ -929,7 +790,7 @@ ESPToggleBtn.MouseButton1Click:Connect(function()
 end)
 
 local StatsCard = Instance.new("Frame")
-StatsCard.Size = UDim2.new(1, -16, 0, 58)
+StatsCard.Size = UDim2.new(1, -16, 0, 60)
 StatsCard.Position = UDim2.new(0, 8, 0, 44)
 StatsCard.BackgroundColor3 = Color3.fromRGB(24, 29, 42)
 StatsCard.Parent = MainFrame
@@ -968,7 +829,8 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                StopHunt("Target Killed! Movement 100% Free")
+                -- ฆ่าได้สำเร็จ -> ลอยขึ้นฟ้าสูงสุดทันที
+                TriggerMaxSkyRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
                 Stats.Deaths = Stats.Deaths + 1
@@ -1130,7 +992,7 @@ end
 
 task.spawn(function()
     while true do
-        if not AppState.IsHunting then
+        if not AppState.IsHunting and not AppState.IsRetreating then
             RenderRadarRows()
         else
             StatusLabel.Text = "Status: " .. AppState.CurrentCombatStatus
@@ -1140,7 +1002,7 @@ task.spawn(function()
 end)
 
 HuntBtn.MouseButton1Click:Connect(function()
-    if AppState.IsHunting then
+    if AppState.IsHunting or AppState.IsRetreating then
         StopHunt("Hunt Cancelled")
         HuntBtn.Text = "START HUNT (ENGAGE)"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
@@ -1159,11 +1021,11 @@ HuntBtn.MouseButton1Click:Connect(function()
             return
         end
 
-        EquipWeaponCategory("Melee")
+        EquipWeapon(Config.PrimaryWeapon)
 
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Anti-Rollback)..."
+        StatusLabel.Text = "Status: Engaging Target..."
     end
 end)
