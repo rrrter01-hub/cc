@@ -1,17 +1,16 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v10.0 (APEX ONE-SHOT CHAIN)
--- Engine Features:
---  1. Frame-Perfect One-Shot Stun Combo:
---     • Step 1 [Ken Break]: Gun Stun (Soul Guitar / Kabucha / Acidum X/Z)
---     • Step 2 [Grapple Stun]: Melee Dash Lock (Godhuman C / Sanguine C)
---     • Step 3 [Heavy Slash]: Sword Hurricane (CDK Z -> CDK X / Spikey X)
---     • Step 4 [Finisher]: Fruit Burst (Z/C/V) + Instant M1 Packet Shred
---  2. Sub-Millisecond Trajectory Lead Aim (Raycast Vector lock on enemy RootPart)
---  3. True Blindspot Lock & Anti-Counter (Zero-Latency behind target on Render frame)
---  4. Infinite Stun Interrupter & Anti-Dash Anchor
---  5. Ultra Instinct Attack Sniffer (Detects enemy cast -> Instant Q-Dash I-Frame)
---  6. Dual Haki Watchdog (Continuous Buso & Ken Observation Haki)
---  7. Auto 1,700 Studs Max Sky Ascent immediately upon elimination
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v10.5 (SKY-WARP & ONE-SHOT)
+-- Upgraded Infiltration & Combat Workflow:
+--  1. Instant Tactical Sky-Warp:
+--     • Distance > 300 studs -> Instant Warp to Sky Drop Waypoint (200 studs above target)
+--     • Pre-Combat Activation: Auto Observation Haki (Ken) + Buso BEFORE diving
+--     • Hyper-Speed Kinetic Dive directly behind target's spine (0-latency Blindspot)
+--  2. Apex Frame-Perfect One-Shot Stun Combo:
+--     • Gun Stun (Ken-Break) -> Melee Grapple (Godhuman C) -> Sword (CDK Z/X) -> Fruit Burst -> M1 Shred
+--  3. Sub-Millisecond Trajectory Lead Aim (Raycast Vector lock on enemy RootPart)
+--  4. True Blindspot Lock (180° inverse of enemy lookvector on Render frame)
+--  5. Infinite Stun Interrupter & Anti-Dash Anchor
+--  6. Auto 1,700 Studs Max Sky Orbit immediately upon target elimination
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -30,18 +29,23 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- CONFIGURATION & CUSTOM ONE-SHOT COMBO SEQUENCE
+-- MASTER CONFIGURATION
 -- =========================================================================
 local Config = {
-    -- ONE-SHOT COMBO ENGINE
-    EnableOneShotCombo = true,     -- เปิดระบบคอมโบตายคาที่ 100-to-0
-    AimLeadPrediction = 0.12,      -- ชดเชยทิศทางเล็งล่วงหน้าตามความเร็วศัตรู
-    M1ShredBurst = true,           -- สแปมหมัด M1 ซ้ำระหว่างรอคูลดาวน์สกิล
+    -- TACTICAL SKY-WARP INFILTRATION
+    EnableSkyWarp = true,          -- วาร์ปข้ามเกาะไปจุดที่ใกล้ศัตรูที่สุดก่อนเข้าจู่โจม
+    WarpDistanceThreshold = 300,   -- ระยะทางที่ต้องใช้วาร์ป (Studs)
+    SkyDropHeight = 220,           -- ความสูงจุดวาร์ปเหนือหัวศัตรู (ป้องกันติดแมพ/แอนตี้ชีต)
+    DiveSpeed = 420,               -- ความเร็วตอนบินดิ่งลงไปล็อคตัวศัตรู
     
-    -- ลำดับการยัดคอมโบสังหาร (จัดตาม Meta ล่าค่าหัวระดับสูง)
+    -- ONE-SHOT COMBO SEQUENCE
+    EnableOneShotCombo = true,     -- เปิดคอมโบสังหาร 100-to-0
+    AimLeadPrediction = 0.12,      -- ชดเชยการเล็งตามความเร็วศัตรู
+    M1ShredBurst = true,           -- สแปม M1 ปิดฉาก
+    
     ComboSequence = {
-        { Weapon = "Gun",        Key = Enum.KeyCode.X, Hold = 0.05, Delay = 0.18 }, -- 1. ยิงสตั๊น/เปิดเบรกฮาคิ
-        { Weapon = "Melee",      Key = Enum.KeyCode.C, Hold = 0.15, Delay = 0.25 }, -- 2. พุ่งล็อคตัว (Godhuman C)
+        { Weapon = "Gun",        Key = Enum.KeyCode.X, Hold = 0.05, Delay = 0.18 }, -- 1. ยิงสตั๊นเบรกฮาคิ
+        { Weapon = "Melee",      Key = Enum.KeyCode.C, Hold = 0.15, Delay = 0.24 }, -- 2. พุ่งล็อคตัว (Godhuman C)
         { Weapon = "Sword",      Key = Enum.KeyCode.Z, Hold = 0.20, Delay = 0.22 }, -- 3. ฟันชุดหนัก (CDK Z)
         { Weapon = "Sword",      Key = Enum.KeyCode.X, Hold = 0.05, Delay = 0.20 }, -- 4. พุ่งฟันซ้ำ (CDK X)
         { Weapon = "Melee",      Key = Enum.KeyCode.Z, Hold = 0.05, Delay = 0.15 }, -- 5. ต่อยกระแทก (Godhuman Z)
@@ -51,21 +55,20 @@ local Config = {
     },
 
     -- BLINDSPOT & COMBAT LOCK
-    EnableAntiCounter = true,      -- เกาะมุมอับสายตา 180 องศาหลังหลังศัตรู
-    BlindspotDistance = 0.9,       -- ระยะชิดตัว
+    EnableAntiCounter = true,      -- ล็อคมุมอับสายตา 180 องศาหลังศัตรู
+    BlindspotDistance = 0.9,       -- ระยะประกบหลัง
     BlindspotHeight = 0.5,
-    EnableForceCombat = true,      -- บังคับติดสถานะ In-Combat ห้ามหนี
+    EnableForceCombat = true,      -- บังคับติด In-Combat
     
-    -- EVASION & HAKI
-    EnableAutoDodge = true,        -- หลบหลีกด้วย Q-Dash / Soru
+    -- HAKI & BUFFS
+    AutoKen = true,                -- เปิดฮาคิสังเกตตลอดเวลา (และเปิดก่อนเข้าชาร์จ)
     AutoBuso = true,               -- ฮาคิเกราะตลอดเวลา
-    AutoKen = true,                -- ฮาคิสังเกตตลอดเวลา
     AutoRaceV3 = true,             -- สกิลเผ่า V3
     AutoRaceV4 = true,             -- สกิลแปลงร่าง V4
     
-    -- MOVEMENT & SKY ESCAPE
+    -- MOVEMENT & RETREAT
     FlySpeed = 390,
-    MaxSkyAltitude = 1700,         -- ลอยขึ้นฟ้าสูงสุด 1,700 Studs หลังสังหาร
+    MaxSkyAltitude = 1700,         -- บินขึ้นฟ้า 1,700 Studs หลังฆ่าสำเร็จ
     PostKillSkyDuration = 4.5,
     EmergencyEscape = true,
     EmergencyHPThreshold = 35,
@@ -85,7 +88,8 @@ local Stats = {
     BountyLost = 0,
     Kills = 0,
     Deaths = 0,
-    ComboExecutions = 0
+    ComboExecutions = 0,
+    WarpsPerformed = 0
 }
 
 local AppState = {
@@ -94,6 +98,7 @@ local AppState = {
     IsSpectating = false,
     IsHealingInSky = false,
     IsRetreating = false,
+    IsWarping = false,
     IsComboExecuting = false,
     CurrentCombatStatus = "Idle",
     LastDodgeTick = 0,
@@ -131,7 +136,7 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- HAKI CONTROLLER
+-- HAKI CONTROLLER (INSTANT OBSERVATION & BUSO ACTIVATOR)
 -- =========================================================================
 local function EnsureBuso()
     if not Config.AutoBuso then return end
@@ -146,7 +151,7 @@ end
 local lastKenTry = 0
 local function EnsureKen()
     if not Config.AutoKen then return end
-    if tick() - lastKenTry < 0.8 then return end
+    if tick() - lastKenTry < 0.6 then return end
     lastKenTry = tick()
 
     local char = GetChar(LocalPlayer)
@@ -230,7 +235,7 @@ local function EquipWeapon(weaponType)
 end
 
 -- =========================================================================
--- FAST ATTACK & COMBAT FRAMEWORK HOOK
+-- FAST ATTACK & COMBAT HOOK
 -- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
@@ -301,11 +306,38 @@ local function FireFastAttack()
 end
 
 -- =========================================================================
+-- TACTICAL SKY-WARP INFILTRATION ENGINE
+-- =========================================================================
+local function PerformTacticalSkyWarp(targetRoot)
+    if not Config.EnableSkyWarp or not targetRoot then return end
+    local myChar = GetChar(LocalPlayer)
+    local myRoot = GetRoot(myChar)
+    if not myRoot then return end
+
+    local dist = (targetRoot.Position - myRoot.Position).Magnitude
+    if dist > Config.WarpDistanceThreshold and not AppState.IsWarping then
+        AppState.IsWarping = true
+        AppState.CurrentCombatStatus = "Sky-Warping to target sub-orbit..."
+        Stats.WarpsPerformed = Stats.WarpsPerformed + 1
+
+        -- 1. เปิดฮาคิสังเกต + ฮาคิเกราะทันทีก่อนวาร์ป
+        EnsureKen()
+        EnsureBuso()
+
+        -- 2. วาร์ปเข้าสู่จุด Sky Drop (เหนือหัวเป้าหมาย 220 Studs)
+        local skyDropPos = targetRoot.Position + Vector3.new(0, Config.SkyDropHeight, 0)
+        myRoot.CFrame = CFrame.new(skyDropPos)
+
+        task.wait(0.08)
+        AppState.IsWarping = false
+    end
+end
+
+-- =========================================================================
 -- APEX PRECISION ONE-SHOT COMBO ENGINE
 -- =========================================================================
 local function AimDirectlyAtTarget(targetRoot)
     if not targetRoot then return end
-    -- เล็งชดเชยทิศทางล่วงหน้า (Lead Aim)
     local targetVel = targetRoot.AssemblyLinearVelocity or targetRoot.Velocity or Vector3.zero
     local aimPos = targetRoot.Position + (targetVel * Config.AimLeadPrediction)
     
@@ -328,7 +360,7 @@ local function ExecuteApexOneShotChain()
     if not targetChar or not targetRoot or not targetHum or targetHum.Health <= 0 then return end
 
     AppState.IsComboExecuting = true
-    AppState.CurrentCombatStatus = "Executing Apex One-Shot Sequence..."
+    AppState.CurrentCombatStatus = "Executing Apex One-Shot Combo..."
     Stats.ComboExecutions = Stats.ComboExecutions + 1
 
     task.spawn(function()
@@ -337,33 +369,25 @@ local function ExecuteApexOneShotChain()
         TriggerRaceV3()
         TriggerRaceV4()
 
-        for stepIndex, step in ipairs(Config.ComboSequence) do
+        for _, step in ipairs(Config.ComboSequence) do
             if not AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then break end
             if not targetHum or targetHum.Health <= 0 or not targetChar.Parent then break end
 
-            -- 1. ถืออาวุธเป้าหมาย
             local tool = EquipWeapon(step.Weapon)
-            task.wait(0.04)
+            task.wait(0.03)
 
-            -- 2. ล็อคเป้าและทิศทางเล็งระดับมิลลิวินาที
             AimDirectlyAtTarget(targetRoot)
 
-            -- 3. รันสกิลตามจังหวะ Hold และ Release
             pcall(function()
                 VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
                 task.wait(step.Hold or 0.05)
                 VirtualInputManager:SendKeyEvent(false, step.Key, false, game)
             end)
 
-            -- 4. รัน Fast Attack แทรกระหว่างจังหวะร่าย
-            if Config.M1ShredBurst then
-                FireFastAttack()
-            end
-
+            if Config.M1ShredBurst then FireFastAttack() end
             task.wait(step.Delay or 0.15)
         end
 
-        -- ปิดฉากด้วย M1 Burst ซ้ำ
         if targetHum and targetHum.Health > 0 then
             EquipWeapon("Melee")
             for i = 1, 6 do
@@ -512,7 +536,7 @@ local function RemovePhysics(myRoot)
 end
 
 RunService.Stepped:Connect(function()
-    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
+    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating or AppState.IsWarping then
         local myChar = GetChar(LocalPlayer)
         if myChar then
             for _, part in ipairs(myChar:GetDescendants()) do
@@ -525,6 +549,7 @@ end)
 local function StopHunt(reason)
     AppState.IsHunting = false
     AppState.IsHealingInSky = false
+    AppState.IsWarping = false
     AppState.IsComboExecuting = false
     AppState.CurrentCombatStatus = reason or "Idle"
     local myChar = GetChar(LocalPlayer)
@@ -539,7 +564,7 @@ local function TriggerMaxSkyRetreat()
     AppState.IsHunting = false
     AppState.IsComboExecuting = false
     AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = string.format("TARGET VAPORIZED! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
+    AppState.CurrentCombatStatus = string.format("TARGET ELIMINATED! Max Sky Orbit (%dm)...", Config.MaxSkyAltitude)
 
     task.spawn(function()
         local start = tick()
@@ -576,8 +601,10 @@ local function TriggerMaxSkyRetreat()
             if nextTarget then
                 AppState.SelectedPlayer = nextTarget
                 AppState.IsHunting = true
+                local nRoot = GetRoot(GetChar(nextTarget))
+                if nRoot then PerformTacticalSkyWarp(nRoot) end
             else
-                StopHunt("All Targets Destroyed")
+                StopHunt("All Targets Cleared")
             end
         else
             StopHunt("Target Eliminated")
@@ -589,7 +616,7 @@ end
 -- 0-LATENCY TRUE BLINDSPOT LOCK (RENDERSTEPPED)
 -- =========================================================================
 RunService.RenderStepped:Connect(function()
-    if not AppState.IsHunting or not AppState.SelectedPlayer or AppState.IsRetreating or AppState.IsHealingInSky then return end
+    if not AppState.IsHunting or not AppState.SelectedPlayer or AppState.IsRetreating or AppState.IsHealingInSky or AppState.IsWarping then return end
 
     local myChar = GetChar(LocalPlayer)
     local myRoot = GetRoot(myChar)
@@ -597,7 +624,6 @@ RunService.RenderStepped:Connect(function()
     local targetRoot = GetRoot(targetChar)
 
     if myRoot and targetRoot and Config.EnableAntiCounter then
-        -- ล็อคมุมอับหลังเป้าหมาย 180 องศาแบบเฟรมต่อเฟรม
         local blindspotCFrame = targetRoot.CFrame * CFrame.new(0, Config.BlindspotHeight, Config.BlindspotDistance)
         local dist = (blindspotCFrame.Position - myRoot.Position).Magnitude
 
@@ -609,10 +635,10 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- =========================================================================
--- HEARTBEAT COMBAT & COMBO TRIGGER LOOP
+-- HEARTBEAT FLIGHT, DIVE & COMBAT ENGINE
 -- =========================================================================
 RunService.Heartbeat:Connect(function(dt)
-    if AppState.IsRetreating then return end
+    if AppState.IsRetreating or AppState.IsWarping then return end
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
 
     local myChar = GetChar(LocalPlayer)
@@ -630,7 +656,7 @@ RunService.Heartbeat:Connect(function(dt)
     if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("EMERGENCY ESCAPE: Sky Healing (%d%% HP)", math.floor(currentHpPercent))
+            AppState.CurrentCombatStatus = string.format("EMERGENCY RETREAT: Sky Healing (%d%% HP)", math.floor(currentHpPercent))
             
             ApplyPhysics(myRoot)
             EnsureKen()
@@ -663,6 +689,8 @@ RunService.Heartbeat:Connect(function(dt)
             local nextTarget = FindBestTarget()
             if nextTarget then
                 AppState.SelectedPlayer = nextTarget
+                local nRoot = GetRoot(GetChar(nextTarget))
+                if nRoot then PerformTacticalSkyWarp(nRoot) end
                 return
             end
         end
@@ -672,11 +700,19 @@ RunService.Heartbeat:Connect(function(dt)
 
     if not targetRoot then return end
 
-    EnsureBuso()
+    -- เปิดฮาคิทั้งสองแบบต่อเนื่อง
     EnsureKen()
+    EnsureBuso()
     ApplyPhysics(myRoot)
 
-    -- คำนวณตำแหน่งประกบหลัง
+    -- ตรวจสอบระยะวาร์ปข้ามเกาะ
+    local curDist = (targetRoot.Position - myRoot.Position).Magnitude
+    if curDist > Config.WarpDistanceThreshold then
+        PerformTacticalSkyWarp(targetRoot)
+        return
+    end
+
+    -- คำนวณตำแหน่งดิ่งโจมตีและประกบหลัง
     local targetVel = targetRoot.AssemblyLinearVelocity or targetRoot.Velocity or Vector3.zero
     local predictedPos = targetRoot.Position + (targetVel * 0.12)
     local predictedCFrame = CFrame.new(predictedPos, predictedPos + targetRoot.CFrame.LookVector)
@@ -691,17 +727,16 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     if dist > 3.2 then
-        AppState.CurrentCombatStatus = "Rushing Target (" .. math.floor(dist) .. "m)"
+        AppState.CurrentCombatStatus = "Diving onto target (" .. math.floor(dist) .. "m)"
         local dir = (targetBlindspot.Position - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 42)
+            bv.Velocity = dir * math.min(Config.DiveSpeed, dist * 42)
         end
     else
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
-        -- เข้าประชิดตัวเรียบร้อย -> ยัดคอมโบ One-Shot ทันที
         if Config.EnableOneShotCombo and not AppState.IsComboExecuting then
             ExecuteApexOneShotChain()
         end
@@ -712,7 +747,7 @@ end)
 -- 3D ESP RADAR
 -- =========================================================================
 local ESPFolder = Instance.new("Folder")
-ESPFolder.Name = "BountyApex_ESP"
+ESPFolder.Name = "BountyWarp_ESP"
 ESPFolder.Parent = (gethui and gethui()) or CoreGui
 
 local ESPObjects = {}
@@ -793,7 +828,7 @@ RunService.RenderStepped:Connect(function()
             if player == AppState.SelectedPlayer then
                 statusColor = "#FF0033"
                 highlightColor = Color3.fromRGB(255, 0, 51)
-                tag = "[🎯 ONE-SHOT LOCKED]"
+                tag = "[🎯 WARP & ONE-SHOT LOCKED]"
             elseif st.InSafeZone then
                 statusColor = "#FFD700"
                 highlightColor = Color3.fromRGB(255, 215, 0)
@@ -827,10 +862,10 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- =========================================================================
--- GUI DASHBOARD (APEX MASTER)
+-- GUI DASHBOARD
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BountyGod_ApexOneShot"
+ScreenGui.Name = "BountyGod_WarpOneShot"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
@@ -900,7 +935,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 40)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v10.0 (APEX ONE-SHOT ENGINE)"
+Header.Text = "  ⚡ BOUNTY GOD v10.5 (SKY-WARP & ONE-SHOT)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -908,21 +943,21 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
-local OneShotToggleBtn = Instance.new("TextButton")
-OneShotToggleBtn.Size = UDim2.new(0, 110, 0, 24)
-OneShotToggleBtn.Position = UDim2.new(1, -215, 0, 8)
-OneShotToggleBtn.BackgroundColor3 = Config.EnableOneShotCombo and Color3.fromRGB(220, 20, 60) or Color3.fromRGB(70, 75, 85)
-OneShotToggleBtn.Text = Config.EnableOneShotCombo and "1-SHOT: ON" or "1-SHOT: OFF"
-OneShotToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-OneShotToggleBtn.Font = Enum.Font.GothamBold
-OneShotToggleBtn.TextSize = 10
-OneShotToggleBtn.Parent = Header
-Instance.new("UICorner", OneShotToggleBtn).CornerRadius = UDim.new(0, 4)
+local WarpToggleBtn = Instance.new("TextButton")
+WarpToggleBtn.Size = UDim2.new(0, 100, 0, 24)
+WarpToggleBtn.Position = UDim2.new(1, -205, 0, 8)
+WarpToggleBtn.BackgroundColor3 = Config.EnableSkyWarp and Color3.fromRGB(0, 150, 255) or Color3.fromRGB(70, 75, 85)
+WarpToggleBtn.Text = Config.EnableSkyWarp and "WARP: ON" or "WARP: OFF"
+WarpToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+WarpToggleBtn.Font = Enum.Font.GothamBold
+WarpToggleBtn.TextSize = 10
+WarpToggleBtn.Parent = Header
+Instance.new("UICorner", WarpToggleBtn).CornerRadius = UDim.new(0, 4)
 
-OneShotToggleBtn.MouseButton1Click:Connect(function()
-    Config.EnableOneShotCombo = not Config.EnableOneShotCombo
-    OneShotToggleBtn.Text = Config.EnableOneShotCombo and "1-SHOT: ON" or "1-SHOT: OFF"
-    OneShotToggleBtn.BackgroundColor3 = Config.EnableOneShotCombo and Color3.fromRGB(220, 20, 60) or Color3.fromRGB(70, 75, 85)
+WarpToggleBtn.MouseButton1Click:Connect(function()
+    Config.EnableSkyWarp = not Config.EnableSkyWarp
+    WarpToggleBtn.Text = Config.EnableSkyWarp and "WARP: ON" or "WARP: OFF"
+    WarpToggleBtn.BackgroundColor3 = Config.EnableSkyWarp and Color3.fromRGB(0, 150, 255) or Color3.fromRGB(70, 75, 85)
 end)
 
 local ESPToggleBtn = Instance.new("TextButton")
@@ -964,9 +999,9 @@ local function UpdateStatsDisplay()
     local net = Stats.BountyGained - Stats.BountyLost
     local netColor = net >= 0 and "#00FF7F" or "#FF4D4D"
     StatText.Text = string.format(
-        "<b>Bounty:</b> %s | <b>K/D:</b> <font color='#00FF7F'>%d</font>/<font color='#FF4D4D'>%d</font> | <b>Combos Landed:</b> <font color='#FF0033'>%d</font><br/>" ..
+        "<b>Bounty:</b> %s | <b>K/D:</b> <font color='#00FF7F'>%d</font>/<font color='#FF4D4D'>%d</font> | <b>Warps:</b> <font color='#00E5FF'>%d</font><br/>" ..
         "<b>Gained:</b> <font color='#00FF7F'>+%s</font> | <b>Lost:</b> <font color='#FF4D4D'>-%s</font> | <b>Net:</b> <font color='%s'>%+d</font>",
-        tostring(Stats.CurrentBounty), Stats.Kills, Stats.Deaths, Stats.ComboExecutions,
+        tostring(Stats.CurrentBounty), Stats.Kills, Stats.Deaths, Stats.WarpsPerformed,
         tostring(Stats.BountyGained), tostring(Stats.BountyLost),
         netColor, net
     )
@@ -1027,7 +1062,7 @@ local HuntBtn = Instance.new("TextButton")
 HuntBtn.Size = UDim2.new(0.42, 0, 0.85, 0)
 HuntBtn.Position = UDim2.new(0.58, 0, 0.07, 0)
 HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
-HuntBtn.Text = "START ONE-SHOT HUNT"
+HuntBtn.Text = "START WARP HUNT"
 HuntBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 HuntBtn.Font = Enum.Font.GothamBold
 HuntBtn.TextSize = IsMobile and 10 or 11
@@ -1135,6 +1170,10 @@ local function RenderRadarRows()
 
                 AppState.SelectedPlayer = player
                 StatusLabel.Text = string.format("Target: %s (Lv.%d | Ready)", player.DisplayName, st.Level)
+                
+                local tRoot = GetRoot(GetChar(player))
+                if tRoot then PerformTacticalSkyWarp(tRoot) end
+                
                 RenderRadarRows()
             end)
         end
@@ -1157,7 +1196,7 @@ end)
 HuntBtn.MouseButton1Click:Connect(function()
     if AppState.IsHunting or AppState.IsRetreating then
         StopHunt("Hunt Cancelled")
-        HuntBtn.Text = "START ONE-SHOT HUNT"
+        HuntBtn.Text = "START WARP HUNT"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
         StatusLabel.Text = "Status: Hunt Cancelled (Idle)"
     else
@@ -1179,8 +1218,11 @@ HuntBtn.MouseButton1Click:Connect(function()
         end
 
         AppState.IsHunting = true
-        HuntBtn.Text = "STOP ONE-SHOT HUNT"
+        local tRoot = GetRoot(GetChar(AppState.SelectedPlayer))
+        if tRoot then PerformTacticalSkyWarp(tRoot) end
+
+        HuntBtn.Text = "STOP WARP HUNT"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Locking & Executing One-Shot..."
+        StatusLabel.Text = "Status: Warping & Locking Target..."
     end
 end)
