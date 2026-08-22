@@ -1,12 +1,7 @@
 -- =========================================================================
--- BLOX FRUITS CROSS-PLATFORM BOUNTY HUNTER ENGINE v4.0 (PC & MOBILE)
--- Features:
--- 1. Dual Device Support (Auto-Detect Mobile / PC + Floating Toggle Button)
--- 2. Live Bounty Dashboard (Gained, Lost, Net, KDR)
--- 3. Radar & Deep Status Checker (SafeZone, PvP Status, HP, Distance)
--- 4. Spy Cam Engine (มุมมองส่องเป้าหมาย)
--- 5. Turbo Fast Attack M1 + Animation Canceler
--- 6. Behind-Back Flight Lock (3.5 Studs Backstab)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v5.0 (BULLETPROOF COMBAT)
+-- Fix: Triple-Method M1 Attack + Auto Equip Weapon + Zero-Fail Skill Rotation
+-- Platforms: Mobile & PC Compatible
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -24,29 +19,29 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- CONFIGURATION & ENGINE SETTINGS
+-- COMBAT CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 320,              -- ความเร็วการบินตาม
-    HoverDistance = 3.5,         -- ระยะประชิดหลังเป้าหมาย (Backstab)
-    Prediction = 0.13,           -- คำนวณความเร็วเป้าหมายล่วงหน้า
-    FastAttackSpeed = 0.02,      -- ดีเลย์ M1 Turbo
-    MultiHitCount = 3,           -- จำนวน Hitbox ตีพร้อมกัน
+    FlySpeed = 350,              -- ความเร็วบินพุ่งเข้าหา
+    AttackDistance = 2.5,        -- ระยะประชิดตัวเป้าหมาย (เผาขน)
+    AttackDelay = 0.01,          -- ความเร็ว M1 รัวทะลุพิกัด
+    MultiHitPackets = 4,         -- ส่งดาเมจซ้ำ 4 เท่า
+    AimPrediction = 0.12,
     AutoBuso = true,
     
-    -- ลำดับการเบิร์สดาเมจแบบ Quick-Swap
-    ComboList = {
-        { Type = "Melee", Key = Enum.KeyCode.Z, Hold = 0.02 },
-        { Type = "Melee", Key = Enum.KeyCode.X, Hold = 0.05 },
-        { Type = "Sword", Key = Enum.KeyCode.Z, Hold = 0.02 },
-        { Type = "Sword", Key = Enum.KeyCode.X, Hold = 0.08 },
-        { Type = "Fruit", Key = Enum.KeyCode.V, Hold = 0.02 },
-        { Type = "Fruit", Key = Enum.KeyCode.C, Hold = 0.05 },
-        { Type = "Gun",   Key = Enum.KeyCode.Z, Hold = 0.02 }
+    -- ลำดับการสลับอาวุธและยิงสกิล
+    SkillRotation = {
+        { Type = "Melee", Key = Enum.KeyCode.Z, Hold = 0.05 },
+        { Type = "Melee", Key = Enum.KeyCode.X, Hold = 0.08 },
+        { Type = "Sword", Key = Enum.KeyCode.Z, Hold = 0.05 },
+        { Type = "Sword", Key = Enum.KeyCode.X, Hold = 0.1 },
+        { Type = "Fruit", Key = Enum.KeyCode.V, Hold = 0.05 },
+        { Type = "Fruit", Key = Enum.KeyCode.C, Hold = 0.08 },
+        { Type = "Gun",   Key = Enum.KeyCode.Z, Hold = 0.05 }
     }
 }
 
--- Tracker Stats
+-- Stats Tracker
 local Stats = {
     StartBounty = 0,
     CurrentBounty = 0,
@@ -60,12 +55,11 @@ local AppState = {
     SelectedPlayer = nil,
     IsHunting = false,
     IsSpectating = false,
-    IsAttacking = false,
-    CurrentTween = nil
+    CurrentCombatStatus = "Idle"
 }
 
 -- =========================================================================
--- UTILITY & STATS FUNCTIONS
+-- UTILITY HELPERS
 -- =========================================================================
 local function GetChar(p) return p and p.Character end
 local function GetRoot(c) return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso")) end
@@ -128,9 +122,176 @@ local function CheckTargetStatus(player)
 end
 
 -- =========================================================================
+-- AUTO WEAPON EQUATION (แก้บั๊กมือเปล่าแล้วไม่ยอมตี)
+-- =========================================================================
+local function EnsureWeaponEquipped(preferredType)
+    local char = GetChar(LocalPlayer)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local hum = GetHum(char)
+    if not char or not hum then return nil end
+
+    local equipped = char:FindFirstChildOfClass("Tool")
+    if equipped then
+        if not preferredType or equipped.ToolTip == preferredType or equipped:GetAttribute("WeaponType") == preferredType then
+            return equipped
+        end
+    end
+
+    -- หาอาวุธในกระเป๋า (Melee -> Sword -> Fruit -> Gun)
+    if bp then
+        if preferredType then
+            for _, tool in ipairs(bp:GetChildren()) do
+                if tool:IsA("Tool") and (tool.ToolTip == preferredType or tool:GetAttribute("WeaponType") == preferredType) then
+                    hum:EquipTool(tool)
+                    return tool
+                end
+            end
+        end
+
+        -- ถ้าไม่มี preferred ให้หยิบอะไรก็ได้ที่มีในตัวออกมาตี
+        for _, toolType in ipairs({"Melee", "Sword", "Blox Fruit", "Fruit", "Gun"}) do
+            for _, tool in ipairs(bp:GetChildren()) do
+                if tool:IsA("Tool") and (tool.ToolTip == toolType or tool:GetAttribute("WeaponType") == toolType or tool.Name:find(toolType)) then
+                    hum:EquipTool(tool)
+                    return tool
+                end
+            end
+        end
+
+        -- หยิบชิ้นแรกสุดในกระเป๋า
+        local firstTool = bp:FindFirstChildOfClass("Tool")
+        if firstTool then
+            hum:EquipTool(firstTool)
+            return firstTool
+        end
+    end
+
+    return equipped
+end
+
+-- =========================================================================
+-- AUTO BUSO HAKI (เปิดฮาคิตลอดเวลา)
+-- =========================================================================
+local function EnsureBuso()
+    local char = GetChar(LocalPlayer)
+    if not char then return end
+    if Config.AutoBuso and not char:FindFirstChild("HasBuso") then
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then
+            pcall(function() rem:InvokeServer("Buso") end)
+        end
+    end
+end
+
+-- =========================================================================
+-- TRIPLE-METHOD FAST ATTACK ENGINE (ระบบการตีแบบ 3 ชั้น การันตีออกผล 100%)
+-- =========================================================================
+local CombatFrameworkModule = nil
+pcall(function()
+    CombatFrameworkModule = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
+end)
+
+local function ExecuteTripleAttack(targetChar)
+    if not targetChar then return end
+    local targetRoot = GetRoot(targetChar)
+    local targetHum = GetHum(targetChar)
+    if not targetRoot or not targetHum or targetHum.Health <= 0 then return end
+
+    -- 1. ตรวจสอบให้แน่ใจว่ามีอาวุธอยู่ในมือ
+    local currentTool = EnsureWeaponEquipped()
+    if not currentTool then return end
+
+    -- METHOD 1: Direct Tool Activation (ใช้งานได้ทุก Executor)
+    pcall(function()
+        currentTool:Activate()
+    end)
+
+    -- METHOD 2: CombatFramework Hook (ตีไร้คูลดาวน์สำหรับ Blox Fruits)
+    if CombatFrameworkModule then
+        pcall(function()
+            local activeRig = CombatFrameworkModule.activeController
+            if activeRig then
+                activeRig.timeToNextAttack = 0
+                activeRig.hitAttempts = 0
+                activeRig.increment = 3
+                activeRig:attack()
+            end
+        end)
+    end
+
+    -- METHOD 3: Multi-Packet Remote Burst
+    local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+    local regHit = net and net:FindFirstChild("RegisterHit")
+    local regAttack = net and net:FindFirstChild("RegisterAttack")
+
+    if regAttack then
+        pcall(function() regAttack:FireServer(0) end)
+    end
+
+    if regHit then
+        local hitParts = {}
+        for _, pName in ipairs({"HumanoidRootPart", "Head", "UpperTorso"}) do
+            local p = targetChar:FindFirstChild(pName)
+            if p then table.insert(hitParts, p) end
+        end
+        for i = 1, Config.MultiHitPackets do
+            pcall(function() regHit:FireServer(targetRoot, hitParts) end)
+        end
+    end
+
+    -- Simulate Mouse Click Fallback
+    VirtualUser:CaptureController()
+    VirtualUser:Button1Down(Vector2.new(0, 0))
+    VirtualUser:Button1Up(Vector2.new(0, 0))
+end
+
+-- =========================================================================
+-- COMBAT & SKILL ROTATION THREAD
+-- =========================================================================
+local function CastSkillKey(key, holdTime)
+    VirtualInputManager:SendKeyEvent(true, key, false, game)
+    if holdTime and holdTime > 0 then task.wait(holdTime) end
+    VirtualInputManager:SendKeyEvent(false, key, false, game)
+end
+
+local isComboActive = false
+local function StartSkillRotation(targetChar)
+    if isComboActive then return end
+    isComboActive = true
+
+    task.spawn(function()
+        while AppState.IsHunting and targetChar and targetChar.Parent do
+            for _, step in ipairs(Config.SkillRotation) do
+                if not AppState.IsHunting then break end
+                local hum = GetHum(targetChar)
+                if not hum or hum.Health <= 0 then break end
+
+                -- สลับอาวุธตามชุดคอมโบ
+                EnsureWeaponEquipped(step.Type)
+                task.wait(0.04)
+
+                -- ปรับกล้องล็อกหน้าเป้าหมาย
+                local tRoot = GetRoot(targetChar)
+                if tRoot then
+                    local predPos = tRoot.Position + (tRoot.AssemblyLinearVelocity * Config.AimPrediction)
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, predPos)
+                end
+
+                -- ยิงสกิล
+                AppState.CurrentCombatStatus = "Casting: " .. step.Type .. " [" .. step.Key.Name .. "]"
+                CastSkillKey(step.Key, step.Hold)
+                task.wait(0.12)
+            end
+            task.wait(0.2)
+        end
+        isComboActive = false
+    end)
+end
+
+-- =========================================================================
 -- NOCLIP & FLIGHT CONTROLLER
 -- =========================================================================
-local function ApplyPhysicsBypass(myRoot)
+local function ApplyBypass(myRoot)
     local bv = myRoot:FindFirstChild("BountyBV") or Instance.new("BodyVelocity")
     bv.Name = "BountyBV"
     bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
@@ -144,7 +305,7 @@ local function ApplyPhysicsBypass(myRoot)
     bg.Parent = myRoot
 end
 
-local function RemovePhysicsBypass(myRoot)
+local function RemoveBypass(myRoot)
     if not myRoot then return end
     if myRoot:FindFirstChild("BountyBV") then myRoot.BountyBV:Destroy() end
     if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
@@ -163,134 +324,17 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- =========================================================================
--- COMBAT: TURBO FAST ATTACK & SKILL WEAVE
--- =========================================================================
-local function EnsureHaki()
-    local char = GetChar(LocalPlayer)
-    if not char then return end
-    if Config.AutoBuso and not char:FindFirstChild("HasBuso") then
-        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if rem then rem:InvokeServer("Buso") end
-    end
-end
-
-local function StopAttackAnimations()
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    local animator = hum:FindFirstChildOfClass("Animator")
-    if animator then
-        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-            local name = track.Name:lower()
-            if name:find("slash") or name:find("attack") or name:find("punch") or name:find("swing") then
-                track:Stop(0)
-            end
-        end
-    end
-end
-
-local function FastAttackHit(targetChar)
-    local targetRoot = GetRoot(targetChar)
-    if not targetRoot then return end
-
-    local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
-    local regHit = net and net:FindFirstChild("RegisterHit")
-    local regAttack = net and net:FindFirstChild("RegisterAttack")
-
-    if regAttack then regAttack:FireServer(0) end
-
-    local hitParts = {}
-    for _, pName in ipairs({"HumanoidRootPart", "Head", "UpperTorso"}) do
-        local p = targetChar:FindFirstChild(pName)
-        if p then table.insert(hitParts, p) end
-    end
-
-    for i = 1, Config.MultiHitCount do
-        if regHit then regHit:FireServer(targetRoot, hitParts) end
-    end
-
-    VirtualUser:CaptureController()
-    VirtualUser:Button1Down(Vector2.new(0, 0))
-    VirtualUser:Button1Up(Vector2.new(0, 0))
-
-    StopAttackAnimations()
-end
-
-local function FastEquipTool(toolType)
-    local bp = LocalPlayer.Backpack
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not bp or not hum then return end
-
-    local currentTool = char:FindFirstChildOfClass("Tool")
-    if currentTool and (currentTool.ToolTip == toolType or currentTool:GetAttribute("WeaponType") == toolType) then
-        return
-    end
-
-    for _, tool in ipairs(bp:GetChildren()) do
-        if tool:IsA("Tool") and (tool.ToolTip == toolType or tool:GetAttribute("WeaponType") == toolType) then
-            hum:EquipTool(tool)
-            break
-        end
-    end
-end
-
-local function FastCastSkill(key, holdTime)
-    VirtualInputManager:SendKeyEvent(true, key, false, game)
-    if holdTime and holdTime > 0 then task.wait(holdTime) end
-    VirtualInputManager:SendKeyEvent(false, key, false, game)
-end
-
--- Continuous Combat Thread
-local function StartCombatThread(targetChar)
-    if AppState.IsAttacking then return end
-    AppState.IsAttacking = true
-
-    -- M1 Fast Attack Loop
-    task.spawn(function()
-        while AppState.IsAttacking and AppState.IsHunting do
-            local hum = GetHum(targetChar)
-            if not hum or hum.Health <= 0 then break end
-
-            FastAttackHit(targetChar)
-            task.wait(Config.FastAttackSpeed)
-        end
-        AppState.IsAttacking = false
-    end)
-
-    -- Combo Skill Weaver Loop
-    task.spawn(function()
-        for _, step in ipairs(Config.ComboList) do
-            if not AppState.IsAttacking or not AppState.IsHunting then break end
-            local hum = GetHum(targetChar)
-            if not hum or hum.Health <= 0 then break end
-
-            FastEquipTool(step.Type)
-            task.wait(0.03)
-
-            local tRoot = GetRoot(targetChar)
-            if tRoot then
-                local predPos = tRoot.Position + (tRoot.AssemblyLinearVelocity * Config.Prediction)
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, predPos)
-            end
-
-            FastCastSkill(step.Key, step.Hold)
-            task.wait(0.12)
-        end
-    end)
-end
-
--- =========================================================================
--- MAIN FLIGHT & TARGET ENGAGE ENGINE
--- =========================================================================
-local function StopHunting()
+local function StopHunt()
     AppState.IsHunting = false
-    AppState.IsAttacking = false
+    isComboActive = false
+    AppState.CurrentCombatStatus = "Idle"
     local myChar = GetChar(LocalPlayer)
-    RemovePhysicsBypass(GetRoot(myChar))
+    RemoveBypass(GetRoot(myChar))
 end
 
+-- =========================================================================
+-- MAIN ENGINE LOOP (HEARTBEAT)
+-- =========================================================================
 RunService.Heartbeat:Connect(function()
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
 
@@ -299,13 +343,13 @@ RunService.Heartbeat:Connect(function()
     local myHum = GetHum(myChar)
 
     if not myChar or not myRoot or not myHum or myHum.Health <= 0 then
-        StopHunting()
+        StopHunt()
         return
     end
 
     local st = CheckTargetStatus(AppState.SelectedPlayer)
     if not st.IsAlive or st.InSafeZone or not st.PvPEnabled then
-        StopHunting()
+        StopHunt()
         return
     end
 
@@ -313,12 +357,14 @@ RunService.Heartbeat:Connect(function()
     local targetRoot = GetRoot(targetChar)
     if not targetRoot then return end
 
-    EnsureHaki()
-    ApplyPhysicsBypass(myRoot)
+    EnsureBuso()
+    ApplyBypass(myRoot)
 
-    -- คำนวณตำแหน่งประชิดหลัง 3.5 Studs
-    local behindTargetPos = (targetRoot.CFrame * CFrame.new(0, 1.2, Config.HoverDistance)).Position
-    local dist = (behindTargetPos - myRoot.Position).Magnitude
+    -- ตำแหน่งประชิดหน้า/หลังเป้าหมาย 2.5 Studs
+    local attackCFrame = targetRoot.CFrame * CFrame.new(0, 1.0, Config.AttackDistance)
+    local currentPos = myRoot.Position
+    local targetPos = attackCFrame.Position
+    local dist = (targetPos - currentPos).Magnitude
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
@@ -326,35 +372,40 @@ RunService.Heartbeat:Connect(function()
     end
 
     if dist > 8 then
-        -- กำลังบินเข้าหาเป้าหมาย
-        local dir = (behindTargetPos - myRoot.Position).Unit
+        -- กำลังบินเข้าหา
+        AppState.CurrentCombatStatus = "Flying to target (" .. math.floor(dist) .. "m)"
+        local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
             bv.Velocity = dir * Config.FlySpeed
         end
     else
-        -- ล็อคตำแหน่งประชิดหลังพร้อมตี
+        -- ถึงระยะโจมตีแล้ว: ล็อคตำแหน่ง + หันหน้าหาศัตรู + ระดมตี M1 & สกิล
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
-        myRoot.CFrame = CFrame.new(behindTargetPos, targetRoot.Position)
+        myRoot.CFrame = CFrame.new(targetPos, targetRoot.Position)
 
-        local predPos = targetRoot.Position + (targetRoot.AssemblyLinearVelocity * Config.Prediction)
+        local predPos = targetRoot.Position + (targetRoot.AssemblyLinearVelocity * Config.AimPrediction)
         Camera.CFrame = CFrame.new(Camera.CFrame.Position, predPos)
 
-        StartCombatThread(targetChar)
+        -- รัน M1 รัวแบบ Triple Attack
+        ExecuteTripleAttack(targetChar)
+
+        -- รันคอมโบสกิลคู่ขนาน
+        StartSkillRotation(targetChar)
     end
 end)
 
 -- =========================================================================
--- CROSS-PLATFORM GUI (MOBILE & PC COMPATIBLE)
+-- GUI (MOBILE & PC UNIVERSAL DASHBOARD)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BountyMasterUniversal"
+ScreenGui.Name = "BountyGodUniversal"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
--- 1. FLOATING TOGGLE BUTTON (สำหรับเปิด/ปิดเมนูบนมือถือ และ PC)
+-- 1. FLOATING TOGGLE BUTTON (สำหรับมือถือ & PC)
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Name = "FloatingToggle"
 ToggleButton.Size = UDim2.new(0, 48, 0, 48)
@@ -370,7 +421,7 @@ local ToggleStroke = Instance.new("UIStroke", ToggleButton)
 ToggleStroke.Color = Color3.fromRGB(255, 255, 255)
 ToggleStroke.Thickness = 2
 
--- Make ToggleButton Draggable for Mobile & PC
+-- Toggle Button Dragging Logic
 local draggingToggle, toggleDragStart, toggleStartPos
 ToggleButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -394,14 +445,11 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- 2. MAIN WINDOW FRAME (Responsive Scaling)
+-- 2. MAIN WINDOW FRAME
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.9, 0, 0.75, 0) or UDim2.new(0, 540, 0, 440)
-MainFrame.Position = UDim2.new(0.5, -MainFrame.Size.X.Offset/2, 0.5, -MainFrame.Size.Y.Offset/2)
-if IsMobile then
-    MainFrame.Position = UDim2.new(0.05, 0, 0.12, 0)
-end
+MainFrame.Size = IsMobile and UDim2.new(0.92, 0, 0.75, 0) or UDim2.new(0, 540, 0, 440)
+MainFrame.Position = IsMobile and UDim2.new(0.04, 0, 0.12, 0) or UDim2.new(0.5, -270, 0.5, -220)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -413,12 +461,10 @@ local MainStroke = Instance.new("UIStroke", MainFrame)
 MainStroke.Color = Color3.fromRGB(40, 55, 80)
 MainStroke.Thickness = 1.5
 
--- Toggle Window Visibility
 ToggleButton.MouseButton1Click:Connect(function()
     MainFrame.Visible = not MainFrame.Visible
 end)
 
--- Keyboard Shortcut for PC (RightShift / LeftControl)
 UserInputService.InputBegan:Connect(function(input, gpe)
     if not gpe and (input.KeyCode == Enum.KeyCode.RightShift or input.KeyCode == Enum.KeyCode.LeftControl) then
         MainFrame.Visible = not MainFrame.Visible
@@ -429,26 +475,13 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY RADAR & AUTO COMBAT (UNIVERSAL)"
+Header.Text = "  ⚡ BOUNTY RADAR & COMBAT ENGINE (ZERO-FAIL)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
-Header.TextSize = IsMobile and 12 or 13
+Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
 Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
-
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 30, 0, 30)
-CloseBtn.Position = UDim2.new(1, -34, 0, 4)
-CloseBtn.BackgroundTransparency = 1
-CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-CloseBtn.TextSize = 16
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.Parent = Header
-CloseBtn.MouseButton1Click:Connect(function()
-    MainFrame.Visible = false
-end)
 
 -- Stats Board (Bounty Tracker)
 local StatsCard = Instance.new("Frame")
@@ -481,7 +514,7 @@ local function UpdateStatsDisplay()
     )
 end
 
--- Hook Bounty Tracker Changes
+-- Hook Live Bounty Listener
 local function SetupBountyListener()
     local ls = LocalPlayer:WaitForChild("leaderstats", 10)
     if not ls then return end
@@ -506,7 +539,7 @@ UpdateStatsDisplay()
 
 -- Player Radar List (Scroll Frame)
 local ScrollList = Instance.new("ScrollingFrame")
-ScrollList.Size = UDim2.new(1, -16, 1, -170)
+ScrollList.Size = UDim2.new(1, -16, 1, -175)
 ScrollList.Position = UDim2.new(0, 8, 0, 110)
 ScrollList.BackgroundColor3 = Color3.fromRGB(11, 13, 18)
 ScrollList.ScrollBarThickness = IsMobile and 6 or 4
@@ -519,8 +552,8 @@ ListLayout.Padding = UDim.new(0, 4)
 
 -- Action Bar (Bottom Controls)
 local ActionCard = Instance.new("Frame")
-ActionCard.Size = UDim2.new(1, -16, 0, 50)
-ActionCard.Position = UDim2.new(0, 8, 1, -55)
+ActionCard.Size = UDim2.new(1, -16, 0, 55)
+ActionCard.Position = UDim2.new(0, 8, 1, -60)
 ActionCard.BackgroundTransparency = 1
 ActionCard.Parent = MainFrame
 
@@ -530,7 +563,7 @@ StatusLabel.BackgroundTransparency = 1
 StatusLabel.Text = "Target: [None] | Status: Idle"
 StatusLabel.TextColor3 = Color3.fromRGB(170, 185, 210)
 StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = IsMobile and 11 or 12
+StatusLabel.TextSize = IsMobile and 10 or 11
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.Parent = ActionCard
 
@@ -629,20 +662,22 @@ local function RenderRadarRows()
     ScrollList.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y + 10)
 end
 
--- Refresh radar list loop
+-- Refresh radar list loop & Live Combat Status update
 task.spawn(function()
     while true do
         if not AppState.IsHunting then
             RenderRadarRows()
+        else
+            StatusLabel.Text = "Status: " .. AppState.CurrentCombatStatus
         end
-        task.wait(2.5)
+        task.wait(1.5)
     end
 end)
 
 -- Engage Button Handler
 HuntBtn.MouseButton1Click:Connect(function()
     if AppState.IsHunting then
-        StopHunting()
+        StopHunt()
         HuntBtn.Text = "START HUNT (ENGAGE)"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
         StatusLabel.Text = "Status: Hunt Cancelled (Idle)"
@@ -666,9 +701,12 @@ HuntBtn.MouseButton1Click:Connect(function()
             return
         end
 
+        -- บังคับถืออาวุธก่อนออกบิน
+        EnsureWeaponEquipped("Melee")
+
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Flying & Attacking..."
+        StatusLabel.Text = "Status: Flying & Engaging..."
     end
 end)
