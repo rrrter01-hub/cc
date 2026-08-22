@@ -1,12 +1,12 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.6
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.7 (OVERHEAD EVASION GOD)
 -- Features:
---  1. Auto Sky Ascent + Direct Flyback to Starter Island (Safe Hub) on Kill
---  2. Auto Sea-Detection (Sea 1: Windmill / Sea 2: Cafe / Sea 3: Castle on Sea)
---  3. Real-Time 3D ESP & Wallhack Radar (Name, HP, Distance, Level, Status)
---  4. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework Hook)
---  5. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
---  6. Auto Buffs (Buso, Ken, Race V3) + Emergency Sky Healing
+--  1. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หมุนวนหลบสกิล 360°)
+--  2. Dynamic Evasive Micro-Jitter (ขยับหลบวิถีสกิลอัตโนมัติ ทำให้ศัตรูตีไม่โดน)
+--  3. Downward M1 Hitbox Expansion (ขยายฮิตบ็อกซ์ลงล่าง โจมตีเข้า 100%)
+--  4. Real-Time 3D Billboard ESP + Live Radar
+--  5. Post-Combat Max Sky Orbit + Auto Return to Starter Safe Island
+--  6. Auto Buffs (Buso Haki, Ken Haki, Race V3 Skill)
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -43,25 +43,31 @@ end
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 300,
-    StickDistance = 1.2,          -- ระยะเกาะหลังศัตรู
-    HeightOffset = 0.5,           -- ระดับความสูง
-    M1AttackSpeed = 0.05,         -- ความเร็วในการสแปม M1
+    FlySpeed = 310,
+    
+    -- OVERHEAD EVASION SETTINGS (ล็อคเหนือหัว + หมุนหลบสกิล)
+    OverheadHeight = 9.5,         -- ความสูงเหนือหัวศัตรู (หลบหมัด/ดาบ/สกิลแนวราบ)
+    OrbitRadius = 3.0,            -- รัศมีการหมุนวนรอบหัว (Helix Orbit)
+    OrbitSpeed = 7.5,             -- ความเร็วในการหมุนหลบวิถีสกิล (เรเดียน/วิ)
+    EnableEvasiveJitter = true,   -- สุ่มจังหวะกระตุกหลบสกิลแนวตั้ง
+    
+    -- COMBAT & M1
+    M1AttackSpeed = 0.05,         -- ความเร็วสแปม M1
     PrimaryWeapon = "Melee",      -- อาวุธหลัก: "Melee", "Sword", "Blox Fruit"
-    HitboxSize = 80,              -- รัศมีฮิตบ็อกซ์
+    HitboxSize = 100,             -- ขยายระยะฮิตบ็อกซ์ลงล่าง
     
     -- ESP SETTINGS
-    EnableESP = true,             -- เปิด/ปิด ระบบ 3D ESP
+    EnableESP = true,             -- 3D ESP Status Display
     ESPTextSize = 11,
     
-    -- RETREAT & STARTER ISLAND RETURN
-    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุด (1,500 Studs)
-    AutoReturnToStarter = true,   -- กลับเกาะแรกทันทีหลังฆ่าศัตรูสำเร็จ
+    -- SURVIVAL & ISLAND RETREAT
+    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุดหลังฆ่าสำเร็จ (1,500 Studs)
+    AutoReturnToStarter = true,   -- บินกลับเกาะแรกทันทีหลังฆ่า
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
     EmergencyEscape = true,
-    EmergencyHPThreshold = 40,
+    EmergencyHPThreshold = 42,
     RecoveryHPThreshold = 95
 }
 
@@ -492,7 +498,7 @@ local function ExecuteM1Combo()
         end)
     end
 
-    -- 3. Tool Direct Trigger & Click Emulation
+    -- 3. Tool Direct Trigger & Input Simulation
     if tool then
         pcall(function() tool:Activate() end)
     end
@@ -509,7 +515,7 @@ local function ExecuteM1Combo()
     end)
 end
 
--- ลูป M1 อัตโนมัติ
+-- ลูปโจมตี M1 ต่อเนื่อง
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
@@ -520,7 +526,7 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 25 then
+                if dist <= 30 then
                     ExecuteM1Combo()
                 end
             end
@@ -543,7 +549,7 @@ local function ApplyPhysics(myRoot)
     local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
     bg.Name = "BountyBG"
     bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 15000
+    bg.P = 18000
     bg.Parent = myRoot
 end
 
@@ -668,7 +674,7 @@ local function TriggerMaxSkyRetreat()
 end
 
 -- =========================================================================
--- MAIN COMBAT & NAVIGATION ENGINE LOOP
+-- MAIN COMBAT ENGINE LOOP (OVERHEAD HELIX ORBIT & EVASION)
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if AppState.IsRetreating then return end
@@ -731,31 +737,42 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- คำนวณตำแหน่งแนบหลัง 1.2 Studs
-    local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
-    local targetPos = stickCFrame.Position
+    -- =========================================================================
+    -- OVERHEAD HELIX ORBIT EVASION CALCULATION (คำนวณตำแหน่งเหนือหัว + หลบสกิล)
+    -- =========================================================================
+    local orbitAngle = tick() * Config.OrbitSpeed
+    local xOffset = math.cos(orbitAngle) * Config.OrbitRadius
+    local zOffset = math.sin(orbitAngle) * Config.OrbitRadius
+    
+    -- Jitter แนวตั้ง เพื่อไม่ให้สกิลพุ่งตรงโดนตัว
+    local verticalJitter = Config.EnableEvasiveJitter and (math.sin(tick() * 8) * 1.2) or 0
+    local targetHeight = Config.OverheadHeight + verticalJitter
+
+    local targetOverheadPos = targetRoot.Position + Vector3.new(xOffset, targetHeight, zOffset)
     local currentPos = myRoot.Position
-    local dist = (targetPos - currentPos).Magnitude
+    local dist = (targetOverheadPos - currentPos).Magnitude
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
+        -- ล็อคมุมมองก้มลงเล็งตรงไปที่หัวศัตรู
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
-    if dist > 3.5 then
-        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
-        local dir = (targetPos - currentPos).Unit
+    if dist > 4.5 then
+        AppState.CurrentCombatStatus = "Rushing to Overhead Position (" .. math.floor(dist) .. "m)"
+        local dir = (targetOverheadPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 30)
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 32)
         end
     else
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
-        myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
+        -- ล็อคตำแหน่งเหนือหัวพร้อมหันหน้ามองศัตรูจากด้านบน
+        myRoot.CFrame = CFrame.lookAt(targetOverheadPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Executing M1 Combo Chain..."
+        AppState.CurrentCombatStatus = "Overhead Helix Evasion Active (Striking Down)"
     end
 end)
 
@@ -833,7 +850,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.6 (ISLAND RETURN + ESP)"
+Header.Text = "  ⚡ BOUNTY GOD v7.7 (OVERHEAD EVASION)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -1095,6 +1112,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target..."
+        StatusLabel.Text = "Status: Engaging Target (Overhead Evasion)..."
     end
 end)
