@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.3 (SMOOTH & STABLE)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.1 (INSTANT FREE MOVEMENT)
 -- Features:
---  1. Classic Smooth Fly Navigation (บินเข้าหาแบบนุ่มนวล เสถียร 100% ไม่บัค)
---  2. Seamless Close-Range Body Glue (เมื่อเข้าใกล้ระยะ 12m จะดูดประกบหลัง 1.2 Studs ต่อเนื่อง)
---  3. Dedicated Auto M1 Machine Gun (0.035s) + Skills (Z, X, C, V)
---  4. Emergency Sky Heal (เลือดต่ำกว่า 35% บินขึ้นฟ้าเซฟทันที)
---  5. Instant Post-Kill Free Movement (ฆ่าเสร็จคืนค่าการเดินกระโดดปกติทันที)
---  6. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
---  7. 3D Billboard ESP & Radar Dashboard
+--  1. Instant Post-Kill Free Movement (ฆ่าเสร็จคืนค่าการเคลื่อนไหว 100% เดิน/กระโดดได้ทันที ไม่มียืนนิ่ง)
+--  2. Dedicated Auto M1 Rapid-Fire Engine (ตีธรรมดาออโต้ความเร็วสูง 0.025s)
+--  3. Multi-Weapon Combo Protocol: หมัด (Melee) -> ดาบ (Sword) -> ผล (Fruit)
+--  4. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
+--  5. Dynamic Lock-On Aim (ล็อคเป้าและมุมกล้อง)
+--  6. 3D Billboard ESP, Taunt Engine & Radar Dashboard
+--  7. Auto Buffs (Buso Haki, Ken Haki, Race V3)
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -28,35 +28,34 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 280,               -- ความเร็วบินเข้าหาเป้าหมาย
-    StickDistance = 1.2,          -- ระยะประกบหลังเมื่อถึงตัวศัตรู (Studs)
-    HeightOffset = 0.5,           -- ระดับความสูง
+    FlySpeed = 320,               -- ความเร็วบินติดตามเป้าหมาย
+    StickDistance = 1.6,          -- ระยะห่างด้านหลังศัตรู (Studs)
+    HeightOffset = 0.8,           -- ระดับความสูงจากพื้น
     
-    -- AUTO M1 ATTACK
-    AutoM1 = true,                -- เปิดตีธรรมดาอัตโนมัติ
-    M1AttackSpeed = 0.035,        -- จังหวะรัว M1
-    HitboxSize = 75,
+    -- AUTO M1 ATTACK SETTINGS
+    AutoM1 = true,                -- เปิดระบบตีธรรมดาอัตโนมัติ
+    M1AttackSpeed = 0.025,        -- จังหวะรัวตีธรรมดา M1 (รัวสุดๆ 0.025s)
+    HitboxSize = 80,              -- รัศมีฮิตบ็อกซ์โจมตี
     
-    -- SKILLS
-    UseSkills = true,             -- ยัดสกิล Z, X, C, V
+    -- COMBO ROTATION SETTINGS (หมัด -> ดาบ -> ผล)
+    EnableComboRotation = true,   -- เปิดใช้งานคอมโบสลับ 3 อาวุธ
+    WeaponSwitchDelay = 0.04,     -- ดีเลย์ตอนสลับอาวุธ
     
-    -- SURVIVAL & SKY ESCAPE
-    EmergencyEscape = true,
-    EmergencyHPThreshold = 35,    -- เลือดต่ำกว่า 35% บินขึ้นฟ้า
-    RecoveryHPThreshold = 85,     -- เลือดถึง 85% ค่อยกลับลงมาสู้
-    SkyAltitude = 650,            -- ความสูงลอยตัวรีเลือด (Studs)
-    
-    -- TAUNT
-    AutoTaunt = true,
-    TauntCooldown = 6.0,
+    -- TAUNT SETTINGS
+    AutoTaunt = true,             -- พิมพ์ยั่วยุเปิดสถานะต่อสู้
+    TauntCooldown = 6.0,          -- ระยะห่างการพิมพ์ยั่วยุ
     
     -- NOCLIP
-    PermanentNoClip = true,
+    PermanentNoClip = true,       -- เดินทะลุกำแพงตลอดเวลา
     
-    -- AUTO BUFFS
+    -- SURVIVAL
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
+    EmergencyEscape = true,
+    EmergencyHPThreshold = 35,
+    RecoveryHPThreshold = 85,
+    EscapeSkyAltitude = 450,
     
     -- ESP
     EnableESP = true,
@@ -110,7 +109,7 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- INSTANT NORMAL MOVEMENT RESTORE (คืนค่าการเดินปกติทันทีหลังฆ่า)
+-- INSTANT NORMAL MOVEMENT RESTORE (แก้บัคยืนนิ่ง คืนค่าการเดินปกติ 100%)
 -- =========================================================================
 local function RestoreNormalMovement()
     local myChar = GetChar(LocalPlayer)
@@ -146,9 +145,9 @@ local function StopHunt(reason)
 end
 
 -- =========================================================================
--- WEAPON CONTROLLER
+-- WEAPON CONTROLLER (SMART MULTI-WEAPON EQUIPPER)
 -- =========================================================================
-local function EquipMelee()
+local function EquipWeaponCategory(category)
     local char = GetChar(LocalPlayer)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local hum = GetHum(char)
@@ -157,7 +156,7 @@ local function EquipMelee()
     local currentTool = char:FindFirstChildOfClass("Tool")
     if currentTool then
         local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or (currentTool:GetAttribute("WeaponType") or "")
-        if tType:lower():find("melee") or currentTool.Name:lower():find("melee") then
+        if tType:lower():find(category:lower()) or currentTool.Name:lower():find(category:lower()) then
             return currentTool
         end
     end
@@ -166,16 +165,11 @@ local function EquipMelee()
         for _, tool in ipairs(bp:GetChildren()) do
             if tool:IsA("Tool") then
                 local tType = tool.ToolTip ~= "" and tool.ToolTip or (tool:GetAttribute("WeaponType") or "")
-                if tType:lower():find("melee") or tool.Name:lower():find("melee") then
+                if tType:lower():find(category:lower()) or tool.Name:lower():find(category:lower()) then
                     hum:EquipTool(tool)
                     return tool
                 end
             end
-        end
-        local first = bp:FindFirstChildOfClass("Tool")
-        if first then
-            hum:EquipTool(first)
-            return first
         end
     end
     return currentTool
@@ -500,7 +494,7 @@ local function TriggerRaceSkill()
 end
 
 -- =========================================================================
--- AUTO M1 ATTACK ENGINE
+-- HIGH-SPEED AUTO M1 ATTACK ENGINE (ตีธรรมดาออโต้ต่อเนื่อง)
 -- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
@@ -537,8 +531,9 @@ local function ExecuteAutoM1(targetChar, targetRoot)
     myHum.Sit = false
     myHum.PlatformStand = false
 
-    local tool = EquipMelee()
+    local tool = myChar:FindFirstChildOfClass("Tool")
 
+    -- 1. Hook Combat Controller
     local controller = ResolveCombatController()
     if controller then
         pcall(function()
@@ -557,6 +552,7 @@ local function ExecuteAutoM1(targetChar, targetRoot)
         end)
     end
 
+    -- 2. Send Packet Stream
     if RegisterAttack then
         pcall(function() RegisterAttack:FireServer(0) end)
     end
@@ -567,6 +563,7 @@ local function ExecuteAutoM1(targetChar, targetRoot)
         end)
     end
 
+    -- 3. Tool Activation & Mouse Click Emulation
     if tool then
         pcall(function() tool:Activate() end)
     end
@@ -578,7 +575,7 @@ local function ExecuteAutoM1(targetChar, targetRoot)
     end)
 end
 
--- ลูป Auto M1
+-- ลูป Auto M1 ตีธรรมดาอัตโนมัติความเร็วสูง (0.025s)
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and Config.AutoM1 then
@@ -589,7 +586,7 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 24 then
+                if dist <= 26 then
                     ExecuteAutoM1(targetChar, targetRoot)
                 end
             end
@@ -599,10 +596,26 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- AUTO SKILL ROTATION (Z, X, C, V)
+-- FULL MULTI-WEAPON COMBO ROTATION (หมัด -> ดาบ -> ผล)
 -- =========================================================================
-local SkillKeys = { Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V }
+local FullComboSequence = {
+    -- PHASE 1: หมัด (MELEE)
+    { Category = "Melee", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.10, Name = "Melee Z" },
+    { Category = "Melee", Key = Enum.KeyCode.X, Hold = 0.04, Delay = 0.10, Name = "Melee X" },
+    { Category = "Melee", Key = Enum.KeyCode.C, Hold = 0.06, Delay = 0.12, Name = "Melee C" },
 
+    -- PHASE 2: ดาบ (SWORD)
+    { Category = "Sword", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.10, Name = "Sword Z" },
+    { Category = "Sword", Key = Enum.KeyCode.X, Hold = 0.06, Delay = 0.12, Name = "Sword X" },
+
+    -- PHASE 3: ผลปีศาจ (BLOX FRUIT)
+    { Category = "Blox Fruit", Key = Enum.KeyCode.Z, Hold = 0.04, Delay = 0.10, Name = "Fruit Z" },
+    { Category = "Blox Fruit", Key = Enum.KeyCode.X, Hold = 0.04, Delay = 0.10, Name = "Fruit X" },
+    { Category = "Blox Fruit", Key = Enum.KeyCode.C, Hold = 0.06, Delay = 0.12, Name = "Fruit C" },
+    { Category = "Blox Fruit", Key = Enum.KeyCode.V, Hold = 0.06, Delay = 0.14, Name = "Fruit V" },
+}
+
+-- เธรดยัดสกิลคอมโบสลับ 3 อาวุธ
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky then
@@ -612,30 +625,42 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 24 and Config.UseSkills then
-                    for _, key in ipairs(SkillKeys) do
-                        if not AppState.IsHunting or AppState.IsHealingInSky then break end
+                if dist <= 26 and Config.EnableComboRotation then
+                    for _, step in ipairs(FullComboSequence) do
+                        if not AppState.IsHunting then break end
 
+                        targetChar = GetChar(AppState.SelectedPlayer)
+                        targetRoot = GetRoot(targetChar)
+                        if not targetChar or not targetRoot or targetChar.Parent == nil then break end
+
+                        -- 1. สลับอาวุธตาม Phase
+                        EquipWeaponCategory(step.Category)
+                        task.wait(Config.WeaponSwitchDelay)
+
+                        -- 2. ล็อคมุมกล้องจ้องเป้าหมาย
                         pcall(function()
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
                         end)
 
+                        -- 3. กดสกิล
                         pcall(function()
-                            VirtualInputManager:SendKeyEvent(true, key, false, game)
-                            task.wait(0.04)
-                            VirtualInputManager:SendKeyEvent(false, key, false, game)
+                            VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
+                            task.wait(step.Hold)
+                            VirtualInputManager:SendKeyEvent(false, step.Key, false, game)
                         end)
-                        task.wait(0.14)
+                        task.wait(step.Delay)
                     end
+                else
+                    EquipWeaponCategory("Melee")
                 end
             end
         end
-        task.wait(0.1)
+        task.wait(0.08)
     end
 end)
 
 -- =========================================================================
--- PHYSICS CONTROLLER
+-- PHYSICS & MOVEMENT CONTROLLER
 -- =========================================================================
 local function ApplyPhysics(myRoot)
     if not myRoot then return end
@@ -653,7 +678,7 @@ local function ApplyPhysics(myRoot)
 end
 
 -- =========================================================================
--- CLASSIC SMOOTH FLIGHT & CLOSE-RANGE BODY GLUE
+-- MAIN DYNAMIC TRACKER LOOP
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
@@ -673,13 +698,12 @@ RunService.Heartbeat:Connect(function()
     if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("🕊️ HEALING IN SKY (%d%% HP)", math.floor(currentHpPercent))
+            AppState.CurrentCombatStatus = string.format("HEALING: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
             
             ApplyPhysics(myRoot)
             EnsureKen()
-            EnsureBuso()
             
-            local skyPos = Vector3.new(myRoot.Position.X, Config.SkyAltitude, myRoot.Position.Z)
+            local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
             local diff = skyPos - myRoot.Position
             local bv = myRoot:FindFirstChild("BountyBV")
             if bv then
@@ -695,7 +719,7 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย -> คืนค่าการเดินปกติทันที
+    -- ตรวจสอบการตายของเป้าหมาย -> คืนค่าการเคลื่อนไหวปกติทันที 100% ไม่มียืนนิ่ง
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         StopHunt("Target Eliminated! Movement 100% Free")
         return
@@ -715,7 +739,7 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- ตำแหน่งเป้าหมายด้านหลัง
+    -- คำนวณตำแหน่งเกาะติดหลังเป้าหมาย 1.6 Studs
     local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
     local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
@@ -728,21 +752,18 @@ RunService.Heartbeat:Connect(function()
     end
 
     local bv = myRoot:FindFirstChild("BountyBV")
-
-    -- 1. บินเข้าหาแบบคลาสสิคสมูทเมื่ออยู่ไกล
-    if dist > 3.0 then
-        AppState.CurrentCombatStatus = "Flying to Target (" .. math.floor(dist) .. "m)"
+    if dist > 2.0 then
+        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
         if bv then
-            bv.Velocity = diff.Unit * math.min(Config.FlySpeed, dist * 30)
+            bv.Velocity = diff.Unit * math.min(Config.FlySpeed, dist * 32)
         end
     else
-        -- 2. เมื่อถึงตัวศัตรู ดูดประกบติดหลังต่อเนื่อง
         if bv then 
             bv.Velocity = targetRoot.AssemblyLinearVelocity 
         end
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Locked On: Auto M1 + Skills Continuous Strike"
+        AppState.CurrentCombatStatus = "Bursting: Auto M1 + Multi-Weapon Combo"
         
         SendTauntMessage(AppState.SelectedPlayer)
     end
@@ -822,7 +843,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v9.3 (CLASSIC FLY & BODY GLUE)"
+Header.Text = "  ⚡ BOUNTY GOD v9.1 (AUTO M1 & FREE MOVEMENT)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -922,7 +943,8 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                StopHunt("Target Eliminated! Movement 100% Free")
+                -- ฆ่าได้สำเร็จ -> คืนค่าการเดินปกติทันที
+                StopHunt("Target Killed! Movement 100% Free")
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
                 Stats.Deaths = Stats.Deaths + 1
@@ -1113,11 +1135,11 @@ HuntBtn.MouseButton1Click:Connect(function()
             return
         end
 
-        EquipMelee()
+        EquipWeaponCategory("Melee")
 
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Smooth Fly & Glue)..."
+        StatusLabel.Text = "Status: Engaging Target (Auto M1 + Combo)..."
     end
 end)
