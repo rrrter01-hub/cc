@@ -1,6 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v5.5 (FIXED COMBAT MATRIX)
--- Fix: Non-blocking Fast Attack Thread + Anti-Spam Equip + CombatFramework Hook
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v6.0 (SKY-ORBIT & GOD SURVIVAL)
+-- Upgrades:
+--  1. Overhead Dynamic Orbit (ลอยวนเหนือหัว 14m ศัตรูตีสวนไม่ถึง + หลบสกิลเส้นตรง)
+--  2. Auto Ken Haki (เปิดฮาคิสังเกตหลบดาเมจอัตโนมัติ)
+--  3. Auto Race Skill (กดเผ่า V3/V4 บัฟถึก/ดาเมจทันทีที่เริ่มสู้)
+--  4. Emergency Sky Escape (เลือด < 35% สปีดหนีขึ้นฟ้า 350m รอรีเลือดจนเต็มแล้วดิ่งลงมาซ้ำ)
+--  5. Downward Predictive Aim (เล็งมุมก้มยัดสกิลลงหัว 100% แม่นยำ)
 -- Platforms: Mobile & PC Compatible
 -- =========================================================================
 
@@ -19,23 +24,36 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- COMBAT CONFIGURATION
+-- COMBAT & SURVIVAL CONFIGURATION
 -- =========================================================================
 local Config = {
     FlySpeed = 350,              
-    AttackDistance = 2.8,        -- ระยะประชิด
-    AttackDelay = 0.05,          -- จังหวะ Burst M1 (ไม่ถี่เกินจนติด Packet Drop)
-    MultiHitPackets = 3,         
-    AimPrediction = 0.14,
-    AutoBuso = true,
+    HoverHeight = 14.5,          -- ระยะความสูงลอยเหนือหัวศัตรู (Studs)
+    OrbitRadius = 5.0,           -- รัศมีบินวนรอบหัวแบบเกลียว (หลบสกิลเล็งตรง)
+    OrbitSpeed = 4.5,            -- ความเร็วในการบินวนรอบ
+    AttackDelay = 0.04,          -- ความเร็ว Fast Attack M1
+    MultiHitPackets = 4,         
+    AimPrediction = 0.13,
     
+    -- SURVIVAL MATRIX
+    AutoBuso = true,             -- ฮาคิเกราะตลอดเวลา
+    AutoKen = true,              -- ฮาคิสังเกตหลบดาเมจ
+    AutoRaceV3 = true,           -- กดสกิลเผ่า V3/V4 ทันทีที่เข้าสู้
+    EmergencyEscape = true,      -- หนีขึ้นฟ้าฟื้นฟูเลือด
+    EmergencyHPThreshold = 35,   -- เปอร์เซ็นต์เลือดที่สั่งหนีขึ้นฟ้า
+    RecoveryHPThreshold = 85,    -- เปอร์เซ็นต์เลือดที่ฟื้นฟูเสร็จแล้วกลับลงมาสู้
+    EscapeSkyAltitude = 380,     -- ความสูงลอยหนีขึ้นฟ้า (Studs)
+    
+    -- ลำดับการสลับอาวุธและยิงสกิล
     SkillRotation = {
         { Type = "Melee", Key = Enum.KeyCode.Z, Hold = 0.05 },
         { Type = "Melee", Key = Enum.KeyCode.X, Hold = 0.08 },
+        { Type = "Melee", Key = Enum.KeyCode.C, Hold = 0.08 },
         { Type = "Sword", Key = Enum.KeyCode.Z, Hold = 0.05 },
         { Type = "Sword", Key = Enum.KeyCode.X, Hold = 0.1 },
         { Type = "Fruit", Key = Enum.KeyCode.V, Hold = 0.05 },
         { Type = "Fruit", Key = Enum.KeyCode.C, Hold = 0.08 },
+        { Type = "Fruit", Key = Enum.KeyCode.Z, Hold = 0.05 },
         { Type = "Gun",   Key = Enum.KeyCode.Z, Hold = 0.05 }
     }
 }
@@ -54,6 +72,7 @@ local AppState = {
     SelectedPlayer = nil,
     IsHunting = false,
     IsSpectating = false,
+    IsHealingInSky = false,
     CurrentCombatStatus = "Idle"
 }
 
@@ -77,7 +96,7 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- STATUS CHECKER (SafeZone, PvP Status, HP, Distance)
+-- STATUS CHECKER (SafeZone, PvP, HP, Team)
 -- =========================================================================
 local function CheckTargetStatus(player)
     local st = {
@@ -116,7 +135,6 @@ local function CheckTargetStatus(player)
         st.PvPEnabled = false
     end
 
-    -- Marines ไม่สามารถตี Marines ด้วยกันได้ ส่วน Pirates ตีได้หมด
     local teamCheck = true
     if LocalPlayer.Team and player.Team then
         if LocalPlayer.Team.Name == "Marines" and player.Team.Name == "Marines" then
@@ -129,9 +147,63 @@ local function CheckTargetStatus(player)
 end
 
 -- =========================================================================
--- SMART WEAPON EQUATION (ป้องกัน Equip ซ้ำซ้อนจนขัดจังหวะการตี)
+-- AUTO BUFFS & SURVIVAL TRIGGERS (HAKI + RACE ABILITY)
 -- =========================================================================
-local lastEquippedType = ""
+local function EnsureBuso()
+    if not Config.AutoBuso then return end
+    local char = GetChar(LocalPlayer)
+    if not char then return end
+    if not char:FindFirstChild("HasBuso") then
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then pcall(function() rem:InvokeServer("Buso") end) end
+    end
+end
+
+local function EnsureKen()
+    if not Config.AutoKen then return end
+    local char = GetChar(LocalPlayer)
+    if not char then return end
+    
+    -- ตรวจสอบและเปิดฮาคิสังเกต
+    if not char:FindFirstChild("KenHaki") and not char:FindFirstChild("Observation") then
+        local remE = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommE")
+        if remE then pcall(function() remE:FireServer("Ken", true) end) end
+        
+        local remF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if remF then pcall(function() remF:InvokeServer("Ken", true) end) end
+
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.04)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
+    end
+end
+
+local lastRaceSkillTick = 0
+local function TriggerRaceSkill()
+    if not Config.AutoRaceV3 then return end
+    if tick() - lastRaceSkillTick < 15 then return end -- ป้องกันกดรัวเกินคูลดาวน์
+    lastRaceSkillTick = tick()
+
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+        task.wait(0.05)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.T, false, game)
+    end)
+    pcall(function()
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then rem:InvokeServer("ActivateAbility") end
+    end)
+    pcall(function()
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then rem:InvokeServer("Awakening") end
+    end)
+end
+
+-- =========================================================================
+-- SMART WEAPON EQUATION
+-- =========================================================================
 local function EnsureWeaponEquipped(preferredType)
     local char = GetChar(LocalPlayer)
     local bp = LocalPlayer:FindFirstChild("Backpack")
@@ -153,7 +225,6 @@ local function EnsureWeaponEquipped(preferredType)
                     local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
                     if tType == preferredType or tool.Name:find(preferredType) then
                         hum:EquipTool(tool)
-                        lastEquippedType = preferredType
                         return tool
                     end
                 end
@@ -166,7 +237,6 @@ local function EnsureWeaponEquipped(preferredType)
                     local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
                     if tType == toolType or tool.Name:find(toolType) then
                         hum:EquipTool(tool)
-                        lastEquippedType = toolType
                         return tool
                     end
                 end
@@ -181,20 +251,6 @@ local function EnsureWeaponEquipped(preferredType)
     end
 
     return equipped
-end
-
--- =========================================================================
--- AUTO BUSO HAKI
--- =========================================================================
-local function EnsureBuso()
-    local char = GetChar(LocalPlayer)
-    if not char then return end
-    if Config.AutoBuso and not char:FindFirstChild("HasBuso") then
-        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if rem then
-            pcall(function() rem:InvokeServer("Buso") end)
-        end
-    end
 end
 
 -- =========================================================================
@@ -219,15 +275,11 @@ local function ExecuteTripleAttack(targetChar)
     if not targetRoot or not targetHum or targetHum.Health <= 0 then return end
 
     local tool = GetChar(LocalPlayer):FindFirstChildOfClass("Tool")
-    if not tool then
-        tool = EnsureWeaponEquipped()
-    end
+    if not tool then tool = EnsureWeaponEquipped() end
     if not tool then return end
 
     -- 1. Direct Tool Activate
-    pcall(function()
-        tool:Activate()
-    end)
+    pcall(function() tool:Activate() end)
 
     -- 2. Combat Framework Attack Animation Override
     local ac = GetActiveController()
@@ -247,9 +299,7 @@ local function ExecuteTripleAttack(targetChar)
     local regHit = net and (net:FindFirstChild("RE/RegisterHit") or net:FindFirstChild("RegisterHit"))
     local regAttack = net and (net:FindFirstChild("RE/RegisterAttack") or net:FindFirstChild("RegisterAttack"))
 
-    if regAttack then
-        pcall(function() regAttack:FireServer(0) end)
-    end
+    if regAttack then pcall(function() regAttack:FireServer(0) end) end
 
     if regHit then
         local hitParts = {}
@@ -258,13 +308,10 @@ local function ExecuteTripleAttack(targetChar)
             if p then table.insert(hitParts, p) end
         end
         for i = 1, Config.MultiHitPackets do
-            pcall(function()
-                regHit:FireServer(targetRoot, hitParts)
-            end)
+            pcall(function() regHit:FireServer(targetRoot, hitParts) end)
         end
     end
 
-    -- Fallback Click Emulation
     pcall(function()
         VirtualUser:Button1Down(Vector2.new(0, 0))
         VirtualUser:Button1Up(Vector2.new(0, 0))
@@ -272,11 +319,11 @@ local function ExecuteTripleAttack(targetChar)
 end
 
 -- =========================================================================
--- INDEPENDENT M1 FAST ATTACK LOOP (แยกเธรดเพื่อไม่ให้ชนกับเรนเดอร์เฟรม)
+-- INDEPENDENT FAST ATTACK LOOP
 -- =========================================================================
 task.spawn(function()
     while true do
-        if AppState.IsHunting and AppState.SelectedPlayer then
+        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky then
             local targetChar = GetChar(AppState.SelectedPlayer)
             local myChar = GetChar(LocalPlayer)
             local targetRoot = GetRoot(targetChar)
@@ -284,7 +331,7 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= (Config.AttackDistance + 12) then
+                if dist <= (Config.HoverHeight + 15) then
                     ExecuteTripleAttack(targetChar)
                 end
             end
@@ -294,7 +341,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- SKILL ROTATION THREAD
+-- COMBAT & SKILL ROTATION THREAD (DOWNWARD PREDICTIVE BURST)
 -- =========================================================================
 local function CastSkillKey(key, holdTime)
     VirtualInputManager:SendKeyEvent(true, key, false, game)
@@ -304,13 +351,13 @@ end
 
 local isComboActive = false
 local function StartSkillRotation(targetChar)
-    if isComboActive then return end
+    if isComboActive or AppState.IsHealingInSky then return end
     isComboActive = true
 
     task.spawn(function()
-        while AppState.IsHunting and targetChar and targetChar.Parent do
+        while AppState.IsHunting and targetChar and targetChar.Parent and not AppState.IsHealingInSky do
             for _, step in ipairs(Config.SkillRotation) do
-                if not AppState.IsHunting then break end
+                if not AppState.IsHunting or AppState.IsHealingInSky then break end
                 local hum = GetHum(targetChar)
                 if not hum or hum.Health <= 0 then break end
 
@@ -319,15 +366,16 @@ local function StartSkillRotation(targetChar)
 
                 local tRoot = GetRoot(targetChar)
                 if tRoot then
+                    -- เล็งหน้าเป้าหมายแบบก้มลงหัว (Downward Lock)
                     local predPos = tRoot.Position + (tRoot.AssemblyLinearVelocity * Config.AimPrediction)
                     Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predPos)
                 end
 
                 AppState.CurrentCombatStatus = "Cast: " .. step.Type .. " [" .. step.Key.Name .. "]"
                 CastSkillKey(step.Key, step.Hold)
-                task.wait(0.14)
+                task.wait(0.12)
             end
-            task.wait(0.25)
+            task.wait(0.2)
         end
         isComboActive = false
     end)
@@ -346,7 +394,7 @@ local function ApplyBypass(myRoot)
     local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
     bg.Name = "BountyBG"
     bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 10000
+    bg.P = 12000
     bg.Parent = myRoot
 end
 
@@ -371,6 +419,7 @@ end)
 
 local function StopHunt()
     AppState.IsHunting = false
+    AppState.IsHealingInSky = false
     isComboActive = false
     AppState.CurrentCombatStatus = "Idle"
     local myChar = GetChar(LocalPlayer)
@@ -378,7 +427,7 @@ local function StopHunt()
 end
 
 -- =========================================================================
--- MAIN ENGINE LOOP (HEARTBEAT)
+-- MAIN ENGINE LOOP (SKY-ORBIT & SURVIVAL MATRIX)
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
@@ -392,6 +441,27 @@ RunService.Heartbeat:Connect(function()
         return
     end
 
+    local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
+
+    -- 1. EMERGENCY HEAL CHECK (ดีดตัวหนีขึ้นฟ้าถ้าเลือดต่ำ)
+    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
+        if currentHpPercent < Config.RecoveryHPThreshold then
+            AppState.IsHealingInSky = true
+            AppState.CurrentCombatStatus = string.format("EMERGENCY HEAL: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
+            
+            ApplyBypass(myRoot)
+            EnsureKen()
+            
+            local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
+            myRoot.CFrame = CFrame.new(skyPos)
+            local bv = myRoot:FindFirstChild("BountyBV")
+            if bv then bv.Velocity = Vector3.new(0, 30, 0) end
+            return
+        else
+            AppState.IsHealingInSky = false
+        end
+    end
+
     local st = CheckTargetStatus(AppState.SelectedPlayer)
     if not st.IsAlive or st.InSafeZone or not st.PvPEnabled then
         StopHunt()
@@ -402,28 +472,37 @@ RunService.Heartbeat:Connect(function()
     local targetRoot = GetRoot(targetChar)
     if not targetRoot then return end
 
+    -- รันระบบเอาตัวรอดอัตโนมัติ
     EnsureBuso()
+    EnsureKen()
+    TriggerRaceSkill()
     ApplyBypass(myRoot)
 
-    -- คำนวณตำแหน่งเกาะหลังเป้าหมาย + ป้องกันตัวจมพื้น
-    local attackCFrame = targetRoot.CFrame * CFrame.new(0, 1.2, Config.AttackDistance)
+    -- 2. DYNAMIC SKY ORBIT POSITIONING (คำนวณตำแหน่งวนรอบหัวแบบ 3 มิติ)
+    local angle = tick() * Config.OrbitSpeed
+    local offsetX = math.cos(angle) * Config.OrbitRadius
+    local offsetZ = math.sin(angle) * Config.OrbitRadius
+    
+    local targetPos = targetRoot.Position + Vector3.new(offsetX, Config.HoverHeight, offsetZ)
     local currentPos = myRoot.Position
-    local targetPos = attackCFrame.Position
     local dist = (targetPos - currentPos).Magnitude
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
+        -- ให้ตัวหันก้มมองเป้าหมายตลอดเวลา
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
-    if dist > 10 then
-        AppState.CurrentCombatStatus = "Flying to target (" .. math.floor(dist) .. "m)"
+    if dist > 14 then
+        -- กำลังบินเข้าหาเป้าหมาย
+        AppState.CurrentCombatStatus = "Sky Diving to target (" .. math.floor(dist) .. "m)"
         local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
             bv.Velocity = dir * Config.FlySpeed
         end
     else
+        -- ถึงระยะเหนือหัว: ล็อคลอยวน + เล็งกล้องดิ่งลง + สั่งคอมโบ
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
@@ -432,7 +511,6 @@ RunService.Heartbeat:Connect(function()
         local predPos = targetRoot.Position + (targetRoot.AssemblyLinearVelocity * Config.AimPrediction)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predPos)
 
-        -- สั่งรันคอมโบสกิลเมื่ออยู่ในระยะ
         StartSkillRotation(targetChar)
     end
 end)
@@ -514,7 +592,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY RADAR & COMBAT ENGINE (v5.5 FIXED)"
+Header.Text = "  ⚡ BOUNTY GOD v6.0 (SKY-ORBIT & AUTO SURVIVE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -739,6 +817,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Flying & Engaging..."
+        StatusLabel.Text = "Status: Orbiting & Engaging Target..."
     end
 end)
