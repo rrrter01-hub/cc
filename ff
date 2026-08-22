@@ -1,12 +1,12 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.1 (AUTO SKILL BURST)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.2 (PVP COMBO PIPELINE)
 -- Features:
---  1. Auto Skill Rotation (Z, X, C, V) with Multi-Weapon Cycling (Melee/Sword/Fruit)
---  2. Legit Combat Credit Registration (การันตีได้รับค่าหัว Bounty/Honor 100%)
---  3. Instant Underground Safe Bunker (-65 Studs Dive on Kill / Low HP)
---  4. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หลบสกิล 360°)
---  5. Downward M1 Fast Attack & Direct RegisterHit Packet Stream
---  6. Quick Safety Hub: [🕳️ DIVE], [🕊️ STARTER], [☕ CAFE], [⚔️ SKILLS: ON/OFF]
+--  1. Structured One-Shot Combo Chain (Melee ZXC -> Sword ZX -> Fruit ZXCV -> Gun ZX)
+--  2. Strict AimLock & Weapon Synchronizer (การันตีคอมโบติด 100% ได้ค่าหัวแน่นอน)
+--  3. M1 Weaving Engine (แทรกหมัด M1 ระหว่างสกิลเพื่อเร่งดาเมจและกันหลุดคอมโบ)
+--  4. Instant Underground Safe Bunker (-65 Studs Dive on Kill / Low HP)
+--  5. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หลบสกิล 360°)
+--  6. Quick Safety Hub: [🕳️ DIVE], [🕊️ STARTER], [☕ CAFE], [⚔️ COMBO: ON/OFF]
 --  7. Real-Time 3D Billboard ESP & Wallhack Radar
 -- =========================================================================
 
@@ -54,10 +54,9 @@ local Config = {
     TravelFlySpeed = 360,         -- ความเร็วบินเดินทางข้ามเกาะ
     TravelSkyAltitude = 850,      -- ความสูงเดินทาง
     
-    -- SKILL ROTATION & COMBAT BURST (รัวสกิลเพื่อรับค่าหัว)
-    AutoSkills = true,            -- เปิดใช้งานระบบรัวสกิล Z, X, C, V อัตโนมัติ
-    AutoWeaponSwitch = true,      -- สลับอาวุธรัวสกิล (Melee -> Sword -> Fruit)
-    SkillSwitchInterval = 2.2,    -- ระยะเวลาสลับอาวุธปล่อยคอมโบ
+    -- ONE-SHOT SKILL COMBO SETTINGS (ระบบคอมโบสกิลเพื่อค่าหัว)
+    EnableSkillCombo = true,      -- เปิดใช้งานระบบคอมโบสกิลต่อเนื่อง
+    M1Weaving = true,             -- แทรก M1 ระหว่างปล่อยสกิล
     
     -- UNDERGROUND BUNKER (มุดดินหลบภัย)
     UndergroundDepth = 65,        -- ระยะมุดลงใต้ดิน (Studs)
@@ -71,7 +70,7 @@ local Config = {
     
     -- COMBAT & M1
     M1AttackSpeed = 0.05,         -- ความเร็วสแปม M1
-    PrimaryWeapon = "Melee",      -- อาวุธหลัก: "Melee", "Sword", "Blox Fruit"
+    PrimaryWeapon = "Melee",      -- อาวุธหลัก
     HitboxSize = 100,             -- ขยายระยะฮิตบ็อกซ์ลงล่าง
     
     -- ESP SETTINGS
@@ -102,6 +101,7 @@ local AppState = {
     IsSpectating = false,
     IsUnderground = false,
     IsRetreating = false,
+    IsExecutingCombo = false,
     CurrentCombatStatus = "Idle"
 }
 
@@ -471,9 +471,6 @@ local function ExecuteM1Combo()
     myHum.PlatformStand = false
 
     local tool = myChar:FindFirstChildOfClass("Tool")
-    if not tool or (Config.PrimaryWeapon and not tool.Name:lower():find(Config.PrimaryWeapon:lower()) and tool.ToolTip ~= Config.PrimaryWeapon) then
-        tool = EquipWeapon(Config.PrimaryWeapon)
-    end
 
     local targetChar = AppState.SelectedPlayer and GetChar(AppState.SelectedPlayer)
     local targetRoot = targetChar and GetRoot(targetChar)
@@ -532,55 +529,87 @@ local function ExecuteM1Combo()
 end
 
 -- =========================================================================
--- AUTO SKILL ROTATION & MULTI-WEAPON BURST ENGINE (Z, X, C, V)
+-- STRUCTURED ONE-SHOT PVP COMBO PIPELINE (MELEE -> SWORD -> FRUIT -> GUN)
 -- =========================================================================
-local SkillList = {
-    { Key = Enum.KeyCode.Z, HoldTime = 0.08, Cooldown = 3.2, LastUsed = 0 },
-    { Key = Enum.KeyCode.X, HoldTime = 0.08, Cooldown = 3.8, LastUsed = 0 },
-    { Key = Enum.KeyCode.C, HoldTime = 0.08, Cooldown = 4.5, LastUsed = 0 },
-    { Key = Enum.KeyCode.V, HoldTime = 0.08, Cooldown = 6.0, LastUsed = 0 },
+local OneShotComboChain = {
+    -- STEP 1: MELEE STUN & DAMAGE
+    { Weapon = "Melee", Key = Enum.KeyCode.Z, Hold = 0.12, Delay = 0.28 },
+    { Weapon = "Melee", Key = Enum.KeyCode.X, Hold = 0.15, Delay = 0.32 },
+    { Weapon = "Melee", Key = Enum.KeyCode.C, Hold = 0.20, Delay = 0.38 },
+
+    -- STEP 2: SWORD BURST STUN
+    { Weapon = "Sword", Key = Enum.KeyCode.Z, Hold = 0.15, Delay = 0.30 },
+    { Weapon = "Sword", Key = Enum.KeyCode.X, Hold = 0.20, Delay = 0.38 },
+
+    -- STEP 3: BLOX FRUIT HIGH BURST
+    { Weapon = "Blox Fruit", Key = Enum.KeyCode.C, Hold = 0.18, Delay = 0.35 },
+    { Weapon = "Blox Fruit", Key = Enum.KeyCode.V, Hold = 0.20, Delay = 0.40 },
+    { Weapon = "Blox Fruit", Key = Enum.KeyCode.Z, Hold = 0.15, Delay = 0.30 },
+    { Weapon = "Blox Fruit", Key = Enum.KeyCode.X, Hold = 0.15, Delay = 0.30 },
+
+    -- STEP 4: GUN FINISHER
+    { Weapon = "Gun", Key = Enum.KeyCode.Z, Hold = 0.10, Delay = 0.25 },
+    { Weapon = "Gun", Key = Enum.KeyCode.X, Hold = 0.15, Delay = 0.30 },
 }
 
-local WeaponSlots = { "Melee", "Sword", "Blox Fruit", "Gun" }
-local currentWeaponIndex = 1
-local lastWeaponSwitchTick = 0
+local function RunFullComboPipeline()
+    if AppState.IsExecutingCombo then return end
+    AppState.IsExecutingCombo = true
 
-local function ExecuteSkillCombo(targetRoot)
-    if not Config.AutoSkills or not targetRoot then return end
+    task.spawn(function()
+        while AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsUnderground and not AppState.IsRetreating do
+            local targetChar = GetChar(AppState.SelectedPlayer)
+            local targetRoot = targetChar and GetRoot(targetChar)
+            local targetHum = targetChar and GetHum(targetChar)
+            local myChar = GetChar(LocalPlayer)
+            local myRoot = myChar and GetRoot(myChar)
 
-    local now = tick()
-    
-    -- สลับอาวุธเพื่อรัวสกิลครบทุกสาย (Melee -> Sword -> Fruit -> Gun)
-    if Config.AutoWeaponSwitch and (now - lastWeaponSwitchTick >= Config.SkillSwitchInterval) then
-        lastWeaponSwitchTick = now
-        currentWeaponIndex = (currentWeaponIndex % #WeaponSlots) + 1
-        local targetWeaponType = WeaponSlots[currentWeaponIndex]
-        EquipWeapon(targetWeaponType)
-        task.wait(0.04)
-    end
+            if not targetChar or not targetRoot or not targetHum or targetHum.Health <= 0 or not myRoot then
+                break
+            end
 
-    -- ปล่อยสกิลที่พร้อมใช้งาน
-    for _, skill in ipairs(SkillList) do
-        if now - skill.LastUsed >= skill.Cooldown then
-            skill.LastUsed = now
+            local dist = (targetRoot.Position - myRoot.Position).Magnitude
+            if dist <= 35 and Config.EnableSkillCombo then
+                for _, step in ipairs(OneShotComboChain) do
+                    if not AppState.IsHunting or AppState.IsUnderground or AppState.IsRetreating then break end
+                    
+                    targetChar = GetChar(AppState.SelectedPlayer)
+                    targetHum = targetChar and GetHum(targetChar)
+                    if not targetChar or not targetHum or targetHum.Health <= 0 then break end
 
-            pcall(function()
-                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-            end)
+                    -- 1. สลับอาวุธสำหรับสกิลขั้นนี้
+                    EquipWeapon(step.Weapon)
+                    task.wait(0.04)
 
-            task.spawn(function()
-                pcall(function()
-                    VirtualInputManager:SendKeyEvent(true, skill.Key, false, game)
-                    task.wait(skill.HoldTime)
-                    VirtualInputManager:SendKeyEvent(false, skill.Key, false, game)
-                end)
-            end)
-            break
+                    -- 2. เล็งเป้าหมายตรงกลางตัว
+                    pcall(function()
+                        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
+                    end)
+
+                    -- 3. แทรก M1 Weaving
+                    if Config.M1Weaving then
+                        ExecuteM1Combo()
+                    end
+
+                    -- 4. กดปล่อยสกิลตามคีย์
+                    pcall(function()
+                        VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
+                        task.wait(step.Hold)
+                        VirtualInputManager:SendKeyEvent(false, step.Key, false, game)
+                    end)
+
+                    task.wait(step.Delay)
+                end
+            else
+                task.wait(0.2)
+            end
+            task.wait(0.1)
         end
-    end
+        AppState.IsExecutingCombo = false
+    end)
 end
 
--- ลูปคอมแบท M1 + สกิล Z, X, C, V ต่อเนื่อง
+-- ลูปคอมแบท M1 ต่อเนื่อง
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsUnderground and not AppState.IsRetreating then
@@ -593,7 +622,9 @@ task.spawn(function()
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
                 if dist <= 32 then
                     ExecuteM1Combo()
-                    ExecuteSkillCombo(targetRoot)
+                    if not AppState.IsExecutingCombo and Config.EnableSkillCombo then
+                        RunFullComboPipeline()
+                    end
                 end
             end
         end
@@ -643,6 +674,7 @@ local function StopHunt(reason)
     AppState.IsHunting = false
     AppState.IsUnderground = false
     AppState.IsRetreating = false
+    AppState.IsExecutingCombo = false
     AppState.CurrentCombatStatus = reason or "Idle"
     local myChar = GetChar(LocalPlayer)
     RemovePhysics(GetRoot(myChar))
@@ -655,6 +687,7 @@ local function TriggerUndergroundRetreat()
     if AppState.IsUnderground then return end
     AppState.IsHunting = false
     AppState.IsRetreating = false
+    AppState.IsExecutingCombo = false
     AppState.IsUnderground = true
     AppState.SelectedPlayer = nil
     AppState.CurrentCombatStatus = "KILL CONFIRMED! Diving Underground (-65 Studs Bunker)..."
@@ -707,6 +740,7 @@ local function SmoothFlyTo(targetPos, destinationName, onComplete)
         AppState.IsRetreating = true
         AppState.IsHunting = false
         AppState.IsUnderground = false
+        AppState.IsExecutingCombo = false
         AppState.CurrentCombatStatus = string.format("Ascending to High Sky (Anti-Rollback)...")
 
         local travelAltitude = Config.TravelSkyAltitude
@@ -874,12 +908,12 @@ RunService.Heartbeat:Connect(function()
         
         myRoot.CFrame = CFrame.lookAt(targetOverheadPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Overhead Burst: M1 + Skills (Z,X,C,V) Active"
+        AppState.CurrentCombatStatus = "Executing One-Shot Combo (Melee/Sword/Fruit/Gun)"
     end
 end)
 
 -- =========================================================================
--- GUI DASHBOARD (WITH UNDERGROUND & AUTO SKILL TOGGLES)
+-- GUI DASHBOARD (WITH COMBO & SAFETY CONTROLS)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BountyGodUniversal"
@@ -952,7 +986,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v8.1 (AUTO SKILL BURST)"
+Header.Text = "  ⚡ BOUNTY GOD v8.2 (PVP COMBO PIPELINE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -978,16 +1012,16 @@ BunkerBtn.TextSize = IsMobile and 10 or 11
 BunkerBtn.Parent = ActionToolbar
 Instance.new("UICorner", BunkerBtn).CornerRadius = UDim.new(0, 6)
 
-local SkillToggleBtn = Instance.new("TextButton")
-SkillToggleBtn.Size = UDim2.new(0.24, -3, 1, 0)
-SkillToggleBtn.Position = UDim2.new(0.25, 0, 0, 0)
-SkillToggleBtn.BackgroundColor3 = Config.AutoSkills and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
-SkillToggleBtn.Text = Config.AutoSkills and "⚔️ SKILL: ON" or "⚔️ SKILL: OFF"
-SkillToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-SkillToggleBtn.Font = Enum.Font.GothamBold
-SkillToggleBtn.TextSize = IsMobile and 10 or 11
-SkillToggleBtn.Parent = ActionToolbar
-Instance.new("UICorner", SkillToggleBtn).CornerRadius = UDim.new(0, 6)
+local ComboToggleBtn = Instance.new("TextButton")
+ComboToggleBtn.Size = UDim2.new(0.24, -3, 1, 0)
+ComboToggleBtn.Position = UDim2.new(0.25, 0, 0, 0)
+ComboToggleBtn.BackgroundColor3 = Config.EnableSkillCombo and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+ComboToggleBtn.Text = Config.EnableSkillCombo and "⚔️ COMBO ON" or "⚔️ COMBO OFF"
+ComboToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ComboToggleBtn.Font = Enum.Font.GothamBold
+ComboToggleBtn.TextSize = IsMobile and 10 or 11
+ComboToggleBtn.Parent = ActionToolbar
+Instance.new("UICorner", ComboToggleBtn).CornerRadius = UDim.new(0, 6)
 
 local TPCafeBtn = Instance.new("TextButton")
 TPCafeBtn.Size = UDim2.new(0.24, -3, 1, 0)
@@ -1011,10 +1045,10 @@ ESPToggleBtn.TextSize = IsMobile and 10 or 11
 ESPToggleBtn.Parent = ActionToolbar
 Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 6)
 
-SkillToggleBtn.MouseButton1Click:Connect(function()
-    Config.AutoSkills = not Config.AutoSkills
-    SkillToggleBtn.Text = Config.AutoSkills and "⚔️ SKILL: ON" or "⚔️ SKILL: OFF"
-    SkillToggleBtn.BackgroundColor3 = Config.AutoSkills and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
+ComboToggleBtn.MouseButton1Click:Connect(function()
+    Config.EnableSkillCombo = not Config.EnableSkillCombo
+    ComboToggleBtn.Text = Config.EnableSkillCombo and "⚔️ COMBO ON" or "⚔️ COMBO OFF"
+    ComboToggleBtn.BackgroundColor3 = Config.EnableSkillCombo and Color3.fromRGB(255, 140, 0) or Color3.fromRGB(100, 100, 100)
 end)
 
 ESPToggleBtn.MouseButton1Click:Connect(function()
@@ -1273,6 +1307,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Overhead Burst)..."
+        StatusLabel.Text = "Status: Engaging Target (One-Shot Combo Pipeline)..."
     end
 end)
