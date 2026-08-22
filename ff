@@ -1,27 +1,193 @@
--- Cross-Platform Modular UI Framework (PC & Mobile Supported)
--- Features: Touch & Mouse Draggable, Scale-based Auto Resizing, Mobile Floating Toggle Button
+-- Onyx Blox Fruits Auto-Bounty Core (UI + Functional Runtime Engine)
+-- Supports PC & Mobile Touch
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Clean up existing instance if re-executed
+-- Clean up older sessions
 if PlayerGui:FindFirstChild("OnyxHubGui") then
     PlayerGui:FindFirstChild("OnyxHubGui"):Destroy()
 end
 
--- Root ScreenGui
+----------------------------------------------------------------------
+-- 1. Global State & Configuration
+----------------------------------------------------------------------
+local State = {
+    AutoBounty = false,
+    SkipSafezone = true,
+    AutoHop = false,
+    FlySpeed = 280,
+    
+    FastAttack = false,
+    AutoSkill = false,
+    AimLock = true,
+    TargetDistance = 10,
+    
+    SkyEscape = true,
+    AutoHaki = true,
+    EscapeHP = 30,
+    
+    AntiAFK = true,
+    
+    CurrentTarget = nil,
+    IsEscaping = false,
+    ActiveTween = nil
+}
+
+----------------------------------------------------------------------
+-- 2. Runtime Core Engine (Movement, Target Finder, Aim, Survival)
+----------------------------------------------------------------------
+
+-- Anti-AFK Hook
+LocalPlayer.Idled:Connect(function()
+    if State.AntiAFK then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end)
+
+-- Target Selector
+local function GetClosestTarget()
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local myPos = myChar.HumanoidRootPart.Position
+
+    local bestTarget = nil
+    local shortestDist = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild("HumanoidRootPart") then
+            local hum = player.Character.Humanoid
+            local hrp = player.Character.HumanoidRootPart
+            
+            if hum.Health > 0 then
+                local dist = (hrp.Position - myPos).Magnitude
+                if dist < shortestDist then
+                    shortestDist = dist
+                    bestTarget = player
+                end
+            end
+        end
+    end
+    return bestTarget
+end
+
+-- Tween Movement Engine
+local function TweenToCFrame(targetCFrame, speed)
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = myChar.HumanoidRootPart
+
+    local distance = (targetCFrame.Position - hrp.Position).Magnitude
+    local duration = distance / math.max(speed, 50)
+
+    if State.ActiveTween then
+        State.ActiveTween:Cancel()
+    end
+
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
+    State.ActiveTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
+    State.ActiveTween:Play()
+    return State.ActiveTween
+end
+
+-- Auto Haki Helper
+local function CheckHaki()
+    local char = LocalPlayer.Character
+    if not char then return end
+    if State.AutoHaki and not char:FindFirstChild("HasBuso") then
+        local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and game:GetService("ReplicatedStorage").Remotes:FindFirstChild("CommF_")
+        if remote then
+            pcall(function() remote:InvokeServer("Buso") end)
+        end
+    end
+end
+
+-- Low HP Escape Watcher
+local function SetupHealthMonitor(char)
+    local hum = char:WaitForChild("Humanoid")
+    hum.HealthChanged:Connect(function(hp)
+        local hpPercent = (hp / hum.MaxHealth) * 100
+        if State.SkyEscape and hpPercent <= State.EscapeHP and not State.IsEscaping and State.AutoBounty then
+            State.IsEscaping = true
+            State.CurrentTarget = nil
+            
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local skyCFrame = CFrame.new(hrp.Position.X, hrp.Position.Y + 2500, hrp.Position.Z)
+                TweenToCFrame(skyCFrame, 400)
+            end
+            
+            -- Wait for regeneration
+            task.spawn(function()
+                while hum.Health < hum.MaxHealth * 0.85 do
+                    task.wait(1)
+                end
+                State.IsEscaping = false
+            end)
+        end
+    end)
+end
+
+if LocalPlayer.Character then
+    SetupHealthMonitor(LocalPlayer.Character)
+end
+LocalPlayer.CharacterAdded:Connect(SetupHealthMonitor)
+
+-- Main Heartbeat Execution Loop
+RunService.Heartbeat:Connect(function()
+    if not State.AutoBounty or State.IsEscaping then return end
+
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") or not myChar:FindFirstChild("Humanoid") then return end
+    if myChar.Humanoid.Health <= 0 then return end
+
+    -- Verify or acquire target
+    if not State.CurrentTarget or not State.CurrentTarget.Character or not State.CurrentTarget.Character:FindFirstChild("Humanoid") or State.CurrentTarget.Character.Humanoid.Health <= 0 then
+        State.CurrentTarget = GetClosestTarget()
+        return
+    end
+
+    local targetHrp = State.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+    if not targetHrp then return end
+
+    -- Maintain position above target
+    local desiredPos = targetHrp.Position + Vector3.new(0, State.TargetDistance, 0)
+    local targetCFrame = CFrame.new(desiredPos, targetHrp.Position)
+    
+    local myHrp = myChar.HumanoidRootPart
+    if (myHrp.Position - desiredPos).Magnitude > 50 then
+        TweenToCFrame(targetCFrame, State.FlySpeed)
+    else
+        myHrp.CFrame = targetCFrame
+        myHrp.Velocity = Vector3.zero
+    end
+
+    -- Aim Lock
+    if State.AimLock then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHrp.Position)
+    end
+
+    CheckHaki()
+end)
+
+----------------------------------------------------------------------
+-- 3. UI Framework Construction
+----------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "OnyxHubGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = PlayerGui
 
--- Palette
 local Theme = {
     Background = Color3.fromRGB(18, 18, 22),
     Header = Color3.fromRGB(24, 24, 30),
@@ -30,14 +196,10 @@ local Theme = {
     AccentInactive = Color3.fromRGB(45, 45, 55),
     TextPrimary = Color3.fromRGB(245, 245, 250),
     TextSecondary = Color3.fromRGB(150, 150, 165),
-    Card = Color3.fromRGB(26, 26, 34),
-    Success = Color3.fromRGB(46, 204, 113),
-    Danger = Color3.fromRGB(231, 76, 60)
+    Card = Color3.fromRGB(26, 26, 34)
 }
 
-----------------------------------------------------------------------
--- 1. Mobile Floating Open/Close Toggle Button
-----------------------------------------------------------------------
+-- Mobile Floating Button
 local MobileToggleBtn = Instance.new("TextButton")
 MobileToggleBtn.Name = "MobileToggleBtn"
 MobileToggleBtn.Size = UDim2.new(0, 48, 0, 48)
@@ -58,9 +220,7 @@ MobileBtnStroke.Color = Theme.Accent
 MobileBtnStroke.Thickness = 1.5
 MobileBtnStroke.Parent = MobileToggleBtn
 
-----------------------------------------------------------------------
--- 2. Main Container (Scale-based for Multi-device Scaling)
-----------------------------------------------------------------------
+-- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0.55, 0, 0.6, 0)
@@ -70,7 +230,6 @@ MainFrame.BackgroundColor3 = Theme.Background
 MainFrame.ClipsDescendants = true
 MainFrame.Parent = ScreenGui
 
--- Responsive Constraints
 local SizeConstraint = Instance.new("UISizeConstraint")
 SizeConstraint.MinSize = Vector2.new(340, 260)
 SizeConstraint.MaxSize = Vector2.new(680, 440)
@@ -85,9 +244,7 @@ MainStroke.Color = Color3.fromRGB(40, 40, 50)
 MainStroke.Thickness = 1
 MainStroke.Parent = MainFrame
 
-----------------------------------------------------------------------
--- 3. Topbar & Drag Functionality (Touch + Mouse Universal)
-----------------------------------------------------------------------
+-- Topbar
 local Topbar = Instance.new("Frame")
 Topbar.Name = "Topbar"
 Topbar.Size = UDim2.new(1, 0, 0, 42)
@@ -122,7 +279,7 @@ local CloseBtnCorner = Instance.new("UICorner")
 CloseBtnCorner.CornerRadius = UDim.new(0, 6)
 CloseBtnCorner.Parent = CloseBtn
 
--- Universal Dragging Logic
+-- Dragging Handler
 local function EnableDragging(frame, dragHandle)
     local dragging = false
     local dragInput, dragStart, startPos
@@ -167,9 +324,7 @@ end
 EnableDragging(MainFrame, Topbar)
 EnableDragging(MobileToggleBtn, MobileToggleBtn)
 
-----------------------------------------------------------------------
--- 4. Sidebar & Tab Manager
-----------------------------------------------------------------------
+-- Sidebar & Navigation
 local Sidebar = Instance.new("Frame")
 Sidebar.Name = "Sidebar"
 Sidebar.Size = UDim2.new(0, 120, 1, -42)
@@ -252,9 +407,7 @@ local function CreateTab(name, layoutOrder)
     return TabPage
 end
 
-----------------------------------------------------------------------
--- 5. Control Component Builders (Toggle, Slider, Status Card)
-----------------------------------------------------------------------
+-- Component Builders
 local function AddToggle(parentPage, text, defaultState, callback)
     local state = defaultState or false
 
@@ -399,42 +552,42 @@ local function AddSlider(parentPage, text, min, max, default, callback)
 end
 
 ----------------------------------------------------------------------
--- 6. Setup Pages & Controls
+-- 4. Hooking UI to State Engine
 ----------------------------------------------------------------------
 local BountyPage = CreateTab("Bounty", 1)
 local CombatPage = CreateTab("Combat", 2)
 local DefensePage = CreateTab("Defense", 3)
 local MiscPage = CreateTab("Misc", 4)
 
--- Bounty Page Items
-AddToggle(BountyPage, "Enable Auto Bounty", false, function(v) print("Auto Bounty:", v) end)
-AddToggle(BountyPage, "Skip Safezone Targets", true, function(v) print("Skip Safezone:", v) end)
-AddToggle(BountyPage, "Auto Server Hop on Empty", true, function(v) print("Auto Hop:", v) end)
-AddSlider(BountyPage, "Fly Speed Offset", 200, 350, 280, function(v) print("Speed:", v) end)
+-- Bounty Tab Controls
+AddToggle(BountyPage, "Enable Auto Bounty", State.AutoBounty, function(v)
+    State.AutoBounty = v
+    if not v and State.ActiveTween then
+        State.ActiveTween:Cancel()
+        State.CurrentTarget = nil
+    end
+end)
+AddToggle(BountyPage, "Skip Safezone", State.SkipSafezone, function(v) State.SkipSafezone = v end)
+AddSlider(BountyPage, "Fly Speed", 150, 350, State.FlySpeed, function(v) State.FlySpeed = v end)
 
--- Combat Page Items
-AddToggle(CombatPage, "Fast Attack Spam", false, function(v) print("Fast Attack:", v) end)
-AddToggle(CombatPage, "Auto Skill Combos", false, function(v) print("Skill Combo:", v) end)
-AddToggle(CombatPage, "Silent Aim Lock", true, function(v) print("Silent Aim:", v) end)
-AddSlider(CombatPage, "Target Distance Offset", 5, 25, 10, function(v) print("Distance:", v) end)
+-- Combat Tab Controls
+AddToggle(CombatPage, "Silent Aim Lock", State.AimLock, function(v) State.AimLock = v end)
+AddSlider(CombatPage, "Height Distance (Studs)", 5, 30, State.TargetDistance, function(v) State.TargetDistance = v end)
 
--- Defense Page Items
-AddToggle(DefensePage, "Emergency Sky Escape", true, function(v) print("Sky Escape:", v) end)
-AddToggle(DefensePage, "Auto Ken / Buso Haki", true, function(v) print("Auto Haki:", v) end)
-AddSlider(DefensePage, "Escape HP Threshold (%)", 15, 45, 30, function(v) print("Escape HP:", v) end)
+-- Defense Tab Controls
+AddToggle(DefensePage, "Emergency Sky Escape", State.SkyEscape, function(v) State.SkyEscape = v end)
+AddToggle(DefensePage, "Auto Buso Haki", State.AutoHaki, function(v) State.AutoHaki = v end)
+AddSlider(DefensePage, "Escape HP Threshold (%)", 15, 50, State.EscapeHP, function(v) State.EscapeHP = v end)
 
--- Misc Page Items
-AddToggle(MiscPage, "Anti-AFK Protection", true, function(v) print("Anti-AFK:", v) end)
-AddToggle(MiscPage, "Discord Webhook Logs", false, function(v) print("Webhook:", v) end)
+-- Misc Tab Controls
+AddToggle(MiscPage, "Anti-AFK Protection", State.AntiAFK, function(v) State.AntiAFK = v end)
 
--- Default Tab View
+-- Default View
 Tabs["Bounty"].Visible = true
 TabButtons["Bounty"].TextColor3 = Theme.TextPrimary
 TabButtons["Bounty"].BackgroundColor3 = Theme.AccentInactive
 
-----------------------------------------------------------------------
--- 7. Visibility Toggle Handlers
-----------------------------------------------------------------------
+-- Visibility Logic
 local isOpen = true
 local function ToggleVisibility()
     isOpen = not isOpen
@@ -444,7 +597,6 @@ end
 CloseBtn.MouseButton1Click:Connect(ToggleVisibility)
 MobileToggleBtn.MouseButton1Click:Connect(ToggleVisibility)
 
--- PC Toggle Keybind (RightControl)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and input.KeyCode == Enum.KeyCode.RightControl then
         ToggleVisibility()
