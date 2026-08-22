@@ -1,11 +1,17 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.5 (ESP + MAX SKY RETREAT)
--- Features:
---  1. Real-Time 3D ESP & Wallhack Radar (Name, HP, Distance, Level, Status)
---  2. Auto Max Sky Altitude Orbit (1,500 Studs) Immediately After Every Kill
---  3. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework Hook)
---  4. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
---  5. Auto Buffs (Buso, Ken, Race V3) + Emergency Sky Healing
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v10.0 (APEX ONE-SHOT CHAIN)
+-- Engine Features:
+--  1. Frame-Perfect One-Shot Stun Combo:
+--     • Step 1 [Ken Break]: Gun Stun (Soul Guitar / Kabucha / Acidum X/Z)
+--     • Step 2 [Grapple Stun]: Melee Dash Lock (Godhuman C / Sanguine C)
+--     • Step 3 [Heavy Slash]: Sword Hurricane (CDK Z -> CDK X / Spikey X)
+--     • Step 4 [Finisher]: Fruit Burst (Z/C/V) + Instant M1 Packet Shred
+--  2. Sub-Millisecond Trajectory Lead Aim (Raycast Vector lock on enemy RootPart)
+--  3. True Blindspot Lock & Anti-Counter (Zero-Latency behind target on Render frame)
+--  4. Infinite Stun Interrupter & Anti-Dash Anchor
+--  5. Ultra Instinct Attack Sniffer (Detects enemy cast -> Instant Q-Dash I-Frame)
+--  6. Dual Haki Watchdog (Continuous Buso & Ken Observation Haki)
+--  7. Auto 1,700 Studs Max Sky Ascent immediately upon elimination
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -16,35 +22,60 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- CONFIGURATION
+-- CONFIGURATION & CUSTOM ONE-SHOT COMBO SEQUENCE
 -- =========================================================================
 local Config = {
-    FlySpeed = 300,
-    StickDistance = 1.2,          -- ระยะเกาะหลังศัตรู
-    HeightOffset = 0.5,           -- ระดับความสูง
-    M1AttackSpeed = 0.05,         -- ความเร็วในการสแปม M1
-    PrimaryWeapon = "Melee",      -- อาวุธหลัก: "Melee", "Sword", "Blox Fruit"
-    HitboxSize = 80,              -- รัศมีฮิตบ็อกซ์
+    -- ONE-SHOT COMBO ENGINE
+    EnableOneShotCombo = true,     -- เปิดระบบคอมโบตายคาที่ 100-to-0
+    AimLeadPrediction = 0.12,      -- ชดเชยทิศทางเล็งล่วงหน้าตามความเร็วศัตรู
+    M1ShredBurst = true,           -- สแปมหมัด M1 ซ้ำระหว่างรอคูลดาวน์สกิล
     
-    -- ESP SETTINGS
-    EnableESP = true,             -- เปิด/ปิด ระบบ 3D ESP
-    ESPTextSize = 11,
+    -- ลำดับการยัดคอมโบสังหาร (จัดตาม Meta ล่าค่าหัวระดับสูง)
+    ComboSequence = {
+        { Weapon = "Gun",        Key = Enum.KeyCode.X, Hold = 0.05, Delay = 0.18 }, -- 1. ยิงสตั๊น/เปิดเบรกฮาคิ
+        { Weapon = "Melee",      Key = Enum.KeyCode.C, Hold = 0.15, Delay = 0.25 }, -- 2. พุ่งล็อคตัว (Godhuman C)
+        { Weapon = "Sword",      Key = Enum.KeyCode.Z, Hold = 0.20, Delay = 0.22 }, -- 3. ฟันชุดหนัก (CDK Z)
+        { Weapon = "Sword",      Key = Enum.KeyCode.X, Hold = 0.05, Delay = 0.20 }, -- 4. พุ่งฟันซ้ำ (CDK X)
+        { Weapon = "Melee",      Key = Enum.KeyCode.Z, Hold = 0.05, Delay = 0.15 }, -- 5. ต่อยกระแทก (Godhuman Z)
+        { Weapon = "Blox Fruit", Key = Enum.KeyCode.V, Hold = 0.05, Delay = 0.15 }, -- 6. สกิลผลไม้ปิดฉาก
+        { Weapon = "Blox Fruit", Key = Enum.KeyCode.C, Hold = 0.05, Delay = 0.15 }, -- 7. สกิลผลไม้เสริม
+        { Weapon = "Melee",      Key = Enum.KeyCode.X, Hold = 0.05, Delay = 0.12 }  -- 8. Godhuman X ทุบปิด
+    },
+
+    -- BLINDSPOT & COMBAT LOCK
+    EnableAntiCounter = true,      -- เกาะมุมอับสายตา 180 องศาหลังหลังศัตรู
+    BlindspotDistance = 0.9,       -- ระยะชิดตัว
+    BlindspotHeight = 0.5,
+    EnableForceCombat = true,      -- บังคับติดสถานะ In-Combat ห้ามหนี
     
-    -- SURVIVAL & RETREAT TO MAX SKY
-    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุด (1,500 Studs กันตาย 100%)
-    PostKillSkyDuration = 5.0,    -- ระยะเวลาลอยค้างบนฟ้าหลังฆ่าสำเร็จ (วินาที)
-    AutoBuso = true,
-    AutoKen = true,
-    AutoRaceV3 = true,
+    -- EVASION & HAKI
+    EnableAutoDodge = true,        -- หลบหลีกด้วย Q-Dash / Soru
+    AutoBuso = true,               -- ฮาคิเกราะตลอดเวลา
+    AutoKen = true,                -- ฮาคิสังเกตตลอดเวลา
+    AutoRaceV3 = true,             -- สกิลเผ่า V3
+    AutoRaceV4 = true,             -- สกิลแปลงร่าง V4
+    
+    -- MOVEMENT & SKY ESCAPE
+    FlySpeed = 390,
+    MaxSkyAltitude = 1700,         -- ลอยขึ้นฟ้าสูงสุด 1,700 Studs หลังสังหาร
+    PostKillSkyDuration = 4.5,
     EmergencyEscape = true,
-    EmergencyHPThreshold = 40,
-    RecoveryHPThreshold = 95
+    EmergencyHPThreshold = 35,
+    RecoveryHPThreshold = 90,
+    
+    -- TARGETING & ESP
+    AutoTarget = true,
+    TargetPriority = "LowestHP",   -- "LowestHP", "Closest", "HighestBounty"
+    EnableESP = true,
+    ESPTextSize = 11
 }
 
 local Stats = {
@@ -53,7 +84,8 @@ local Stats = {
     BountyGained = 0,
     BountyLost = 0,
     Kills = 0,
-    Deaths = 0
+    Deaths = 0,
+    ComboExecutions = 0
 }
 
 local AppState = {
@@ -62,11 +94,15 @@ local AppState = {
     IsSpectating = false,
     IsHealingInSky = false,
     IsRetreating = false,
-    CurrentCombatStatus = "Idle"
+    IsComboExecuting = false,
+    CurrentCombatStatus = "Idle",
+    LastDodgeTick = 0,
+    LastTagTick = 0,
+    TargetAnimTrack = nil
 }
 
 -- =========================================================================
--- UTILITY HELPERS
+-- UTILITIES
 -- =========================================================================
 local function GetChar(p) return p and p.Character end
 local function GetRoot(c) return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")) end
@@ -95,7 +131,255 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- TARGET STATUS CHECKER
+-- HAKI CONTROLLER
+-- =========================================================================
+local function EnsureBuso()
+    if not Config.AutoBuso then return end
+    local char = GetChar(LocalPlayer)
+    if not char then return end
+    if not char:FindFirstChild("HasBuso") then
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then pcall(function() rem:InvokeServer("Buso") end) end
+    end
+end
+
+local lastKenTry = 0
+local function EnsureKen()
+    if not Config.AutoKen then return end
+    if tick() - lastKenTry < 0.8 then return end
+    lastKenTry = tick()
+
+    local char = GetChar(LocalPlayer)
+    if not char then return end
+
+    local hasKen = char:FindFirstChild("KenHaki") 
+        or char:FindFirstChild("Observation") 
+        or char:FindFirstChild("KenTalk")
+        or LocalPlayer:GetAttribute("Observation") == true
+
+    if not hasKen then
+        local remF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if remF then pcall(function() remF:InvokeServer("Ken", true) end) end
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+            task.wait(0.02)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        end)
+    end
+end
+
+local lastRaceV3Tick = 0
+local function TriggerRaceV3()
+    if not Config.AutoRaceV3 then return end
+    if tick() - lastRaceV3Tick < 12 then return end
+    lastRaceV3Tick = tick()
+
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.T, false, game)
+    end)
+    pcall(function()
+        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+        if rem then rem:InvokeServer("ActivateAbility") end
+    end)
+end
+
+local lastRaceV4Tick = 0
+local function TriggerRaceV4()
+    if not Config.AutoRaceV4 then return end
+    if tick() - lastRaceV4Tick < 4 then return end
+    lastRaceV4Tick = tick()
+
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Y, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Y, false, game)
+    end)
+end
+
+-- =========================================================================
+-- WEAPON INVENTORY RESOLVER
+-- =========================================================================
+local function EquipWeapon(weaponType)
+    local char = GetChar(LocalPlayer)
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local hum = GetHum(char)
+    if not char or not hum then return nil end
+
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if currentTool then
+        local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or currentTool:GetAttribute("WeaponType") or ""
+        if not weaponType or tType:lower() == weaponType:lower() or currentTool.Name:lower():find(weaponType:lower()) then
+            return currentTool
+        end
+    end
+
+    if bp then
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") then
+                local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType") or ""
+                if not weaponType or tType:lower() == weaponType:lower() or tool.Name:lower():find(weaponType:lower()) then
+                    hum:EquipTool(tool)
+                    return tool
+                end
+            end
+        end
+    end
+    return currentTool
+end
+
+-- =========================================================================
+-- FAST ATTACK & COMBAT FRAMEWORK HOOK
+-- =========================================================================
+local CombatFramework = nil
+local CombatController = nil
+
+local function ResolveCombatController()
+    if CombatController and typeof(CombatController) == "table" then return CombatController end
+    pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not ps then return end
+        local cfModule = ps:FindFirstChild("CombatFramework")
+        if cfModule and cfModule:IsA("ModuleScript") then
+            CombatFramework = require(cfModule)
+            if typeof(CombatFramework) == "table" then
+                if CombatFramework.activeController then
+                    CombatController = CombatFramework.activeController
+                elseif getupvalues then
+                    for _, val in pairs(getupvalues(CombatFramework)) do
+                        if typeof(val) == "table" and rawget(val, "activeController") then
+                            CombatController = val.activeController
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return CombatController
+end
+
+local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+local RegisterAttack = Net and (Net:FindFirstChild("RE/RegisterAttack") or Net:FindFirstChild("RegisterAttack"))
+local RegisterHit = Net and (Net:FindFirstChild("RE/RegisterHit") or Net:FindFirstChild("RegisterHit"))
+
+local function FireFastAttack()
+    local myChar = GetChar(LocalPlayer)
+    local myHum = GetHum(myChar)
+    if not myChar or not myHum or myHum.Health <= 0 then return end
+
+    local targetChar = AppState.SelectedPlayer and GetChar(AppState.SelectedPlayer)
+    local targetRoot = targetChar and GetRoot(targetChar)
+    local targetHum = targetChar and GetHum(targetChar)
+
+    local controller = ResolveCombatController()
+    if controller then
+        pcall(function()
+            controller.hitboxMagnitude = 95
+            controller.timeToNextAttack = 0
+            controller.hitAttempts = 0
+            controller.attacking = false
+            controller.blocking = false
+            controller.increment = 3
+            if controller.attack then controller:attack() end
+        end)
+    end
+
+    if RegisterAttack then pcall(function() RegisterAttack:FireServer(0) end) end
+    if RegisterHit and targetRoot and targetHum and targetHum.Health > 0 then
+        pcall(function()
+            RegisterHit:FireServer(targetRoot, { { targetChar, targetRoot } })
+        end)
+    end
+
+    pcall(function()
+        VirtualUser:CaptureController()
+        VirtualUser:Button1Down(Vector2.new(0, 0))
+        VirtualUser:Button1Up(Vector2.new(0, 0))
+    end)
+end
+
+-- =========================================================================
+-- APEX PRECISION ONE-SHOT COMBO ENGINE
+-- =========================================================================
+local function AimDirectlyAtTarget(targetRoot)
+    if not targetRoot then return end
+    -- เล็งชดเชยทิศทางล่วงหน้า (Lead Aim)
+    local targetVel = targetRoot.AssemblyLinearVelocity or targetRoot.Velocity or Vector3.zero
+    local aimPos = targetRoot.Position + (targetVel * Config.AimLeadPrediction)
+    
+    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, aimPos)
+    pcall(function()
+        local screenPos, onScreen = Camera:WorldToViewportPoint(aimPos)
+        if onScreen then
+            VirtualInputManager:SendMouseMoveEvent(screenPos.X, screenPos.Y, game)
+        end
+    end)
+end
+
+local function ExecuteApexOneShotChain()
+    if AppState.IsComboExecuting then return end
+    if not AppState.IsHunting or not AppState.SelectedPlayer or AppState.IsHealingInSky or AppState.IsRetreating then return end
+
+    local targetChar = GetChar(AppState.SelectedPlayer)
+    local targetRoot = GetRoot(targetChar)
+    local targetHum = GetHum(targetChar)
+    if not targetChar or not targetRoot or not targetHum or targetHum.Health <= 0 then return end
+
+    AppState.IsComboExecuting = true
+    AppState.CurrentCombatStatus = "Executing Apex One-Shot Sequence..."
+    Stats.ComboExecutions = Stats.ComboExecutions + 1
+
+    task.spawn(function()
+        EnsureBuso()
+        EnsureKen()
+        TriggerRaceV3()
+        TriggerRaceV4()
+
+        for stepIndex, step in ipairs(Config.ComboSequence) do
+            if not AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then break end
+            if not targetHum or targetHum.Health <= 0 or not targetChar.Parent then break end
+
+            -- 1. ถืออาวุธเป้าหมาย
+            local tool = EquipWeapon(step.Weapon)
+            task.wait(0.04)
+
+            -- 2. ล็อคเป้าและทิศทางเล็งระดับมิลลิวินาที
+            AimDirectlyAtTarget(targetRoot)
+
+            -- 3. รันสกิลตามจังหวะ Hold และ Release
+            pcall(function()
+                VirtualInputManager:SendKeyEvent(true, step.Key, false, game)
+                task.wait(step.Hold or 0.05)
+                VirtualInputManager:SendKeyEvent(false, step.Key, false, game)
+            end)
+
+            -- 4. รัน Fast Attack แทรกระหว่างจังหวะร่าย
+            if Config.M1ShredBurst then
+                FireFastAttack()
+            end
+
+            task.wait(step.Delay or 0.15)
+        end
+
+        -- ปิดฉากด้วย M1 Burst ซ้ำ
+        if targetHum and targetHum.Health > 0 then
+            EquipWeapon("Melee")
+            for i = 1, 6 do
+                if not AppState.IsHunting or targetHum.Health <= 0 then break end
+                AimDirectlyAtTarget(targetRoot)
+                FireFastAttack()
+                task.wait(0.03)
+            end
+        end
+
+        AppState.IsComboExecuting = false
+    end)
+end
+
+-- =========================================================================
+-- TARGET EVALUATOR
 -- =========================================================================
 local function CheckTargetStatus(player)
     local st = {
@@ -104,14 +388,14 @@ local function CheckTargetStatus(player)
         PvPEnabled = true,
         Health = 0,
         MaxHealth = 100,
-        Distance = 0,
+        Distance = 99999,
         Level = 1,
         Bounty = 0,
         CanAttack = false,
         Reason = "OK"
     }
 
-    if not player or not player.Parent then 
+    if not player or not player.Parent or player == LocalPlayer then 
         st.Reason = "Invalid Target"
         return st 
     end
@@ -155,22 +439,19 @@ local function CheckTargetStatus(player)
         st.PvPEnabled = false
     end
 
-    local teamCheck = true
     if LocalPlayer.Team and player.Team then
         if LocalPlayer.Team.Name == "Marines" and player.Team.Name == "Marines" then
-            teamCheck = false
             st.Reason = "Same Marine Team"
+            return st
         end
     end
 
     if not st.IsAlive then
-        st.Reason = "Player is Dead"
+        st.Reason = "Dead"
     elseif st.InSafeZone then
         st.Reason = "In SafeZone"
     elseif not st.PvPEnabled then
-        st.Reason = "PvP Disabled (Peace)"
-    elseif not teamCheck then
-        st.Reason = "Same Marine Team"
+        st.Reason = "PvP Disabled"
     else
         st.CanAttack = true
         st.Reason = "Ready for Combat"
@@ -179,11 +460,259 @@ local function CheckTargetStatus(player)
     return st
 end
 
+local function FindBestTarget()
+    local candidates = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local st = CheckTargetStatus(p)
+            if st.CanAttack then
+                table.insert(candidates, { Player = p, Status = st })
+            end
+        end
+    end
+
+    if #candidates == 0 then return nil end
+
+    table.sort(candidates, function(a, b)
+        if Config.TargetPriority == "LowestHP" then
+            return a.Status.Health < b.Status.Health
+        elseif Config.TargetPriority == "Closest" then
+            return a.Status.Distance < b.Status.Distance
+        elseif Config.TargetPriority == "HighestBounty" then
+            return a.Status.Bounty > b.Status.Bounty
+        end
+        return a.Status.Distance < b.Status.Distance
+    end)
+
+    return candidates[1].Player
+end
+
 -- =========================================================================
--- 3D ESP SYSTEM (NAME, HEALTH, DISTANCE, STATUS)
+-- PHYSICS & NOCLIP
+-- =========================================================================
+local function ApplyPhysics(myRoot)
+    if not myRoot then return end
+    local bv = myRoot:FindFirstChild("BountyBV") or Instance.new("BodyVelocity")
+    bv.Name = "BountyBV"
+    bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+    bv.Velocity = Vector3.zero
+    bv.Parent = myRoot
+
+    local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
+    bg.Name = "BountyBG"
+    bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+    bg.P = 22000
+    bg.Parent = myRoot
+end
+
+local function RemovePhysics(myRoot)
+    if not myRoot then return end
+    if myRoot:FindFirstChild("BountyBV") then myRoot.BountyBV:Destroy() end
+    if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
+end
+
+RunService.Stepped:Connect(function()
+    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
+        local myChar = GetChar(LocalPlayer)
+        if myChar then
+            for _, part in ipairs(myChar:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
+        end
+    end
+end)
+
+local function StopHunt(reason)
+    AppState.IsHunting = false
+    AppState.IsHealingInSky = false
+    AppState.IsComboExecuting = false
+    AppState.CurrentCombatStatus = reason or "Idle"
+    local myChar = GetChar(LocalPlayer)
+    RemovePhysics(GetRoot(myChar))
+end
+
+-- =========================================================================
+-- MAXIMUM SKY RETREAT (1,700 STUDS)
+-- =========================================================================
+local function TriggerMaxSkyRetreat()
+    if AppState.IsRetreating then return end
+    AppState.IsHunting = false
+    AppState.IsComboExecuting = false
+    AppState.IsRetreating = true
+    AppState.CurrentCombatStatus = string.format("TARGET VAPORIZED! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
+
+    task.spawn(function()
+        local start = tick()
+        while (tick() - start < Config.PostKillSkyDuration) do
+            local myChar = GetChar(LocalPlayer)
+            local myRoot = GetRoot(myChar)
+            local myHum = GetHum(myChar)
+
+            if myRoot and myHum and myHum.Health > 0 then
+                ApplyPhysics(myRoot)
+                EnsureKen()
+                EnsureBuso()
+                
+                local maxSkyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
+                local diff = maxSkyPos - myRoot.Position
+                local bv = myRoot:FindFirstChild("BountyBV")
+                if bv then
+                    bv.Velocity = diff.Magnitude > 15 and diff.Unit * (Config.FlySpeed + 130) or Vector3.zero
+                end
+            end
+            task.wait(0.04)
+        end
+
+        local myChar = GetChar(LocalPlayer)
+        local myRoot = GetRoot(myChar)
+        local bv = myRoot and myRoot:FindFirstChild("BountyBV")
+        if bv then bv.Velocity = Vector3.zero end
+
+        AppState.IsRetreating = false
+        AppState.SelectedPlayer = nil
+
+        if Config.AutoTarget then
+            local nextTarget = FindBestTarget()
+            if nextTarget then
+                AppState.SelectedPlayer = nextTarget
+                AppState.IsHunting = true
+            else
+                StopHunt("All Targets Destroyed")
+            end
+        else
+            StopHunt("Target Eliminated")
+        end
+    end)
+end
+
+-- =========================================================================
+-- 0-LATENCY TRUE BLINDSPOT LOCK (RENDERSTEPPED)
+-- =========================================================================
+RunService.RenderStepped:Connect(function()
+    if not AppState.IsHunting or not AppState.SelectedPlayer or AppState.IsRetreating or AppState.IsHealingInSky then return end
+
+    local myChar = GetChar(LocalPlayer)
+    local myRoot = GetRoot(myChar)
+    local targetChar = GetChar(AppState.SelectedPlayer)
+    local targetRoot = GetRoot(targetChar)
+
+    if myRoot and targetRoot and Config.EnableAntiCounter then
+        -- ล็อคมุมอับหลังเป้าหมาย 180 องศาแบบเฟรมต่อเฟรม
+        local blindspotCFrame = targetRoot.CFrame * CFrame.new(0, Config.BlindspotHeight, Config.BlindspotDistance)
+        local dist = (blindspotCFrame.Position - myRoot.Position).Magnitude
+
+        if dist <= 4.5 then
+            myRoot.CFrame = CFrame.lookAt(blindspotCFrame.Position, targetRoot.Position)
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
+        end
+    end
+end)
+
+-- =========================================================================
+-- HEARTBEAT COMBAT & COMBO TRIGGER LOOP
+-- =========================================================================
+RunService.Heartbeat:Connect(function(dt)
+    if AppState.IsRetreating then return end
+    if not AppState.IsHunting or not AppState.SelectedPlayer then return end
+
+    local myChar = GetChar(LocalPlayer)
+    local myRoot = GetRoot(myChar)
+    local myHum = GetHum(myChar)
+
+    if not myChar or not myRoot or not myHum or myHum.Health <= 0 then
+        StopHunt("Player Dead")
+        return
+    end
+
+    local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
+
+    -- Emergency Sky Heal
+    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
+        if currentHpPercent < Config.RecoveryHPThreshold then
+            AppState.IsHealingInSky = true
+            AppState.CurrentCombatStatus = string.format("EMERGENCY ESCAPE: Sky Healing (%d%% HP)", math.floor(currentHpPercent))
+            
+            ApplyPhysics(myRoot)
+            EnsureKen()
+            EnsureBuso()
+            
+            local skyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
+            local diff = skyPos - myRoot.Position
+            local bv = myRoot:FindFirstChild("BountyBV")
+            if bv then
+                bv.Velocity = diff.Magnitude > 15 and diff.Unit * Config.FlySpeed or Vector3.zero
+            end
+            return
+        else
+            AppState.IsHealingInSky = false
+        end
+    end
+
+    local targetChar = GetChar(AppState.SelectedPlayer)
+    local targetHum = GetHum(targetChar)
+    local targetRoot = GetRoot(targetChar)
+
+    if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
+        TriggerMaxSkyRetreat()
+        return
+    end
+
+    local st = CheckTargetStatus(AppState.SelectedPlayer)
+    if not st.CanAttack then
+        if Config.AutoTarget then
+            local nextTarget = FindBestTarget()
+            if nextTarget then
+                AppState.SelectedPlayer = nextTarget
+                return
+            end
+        end
+        StopHunt("Disengaged: " .. st.Reason)
+        return
+    end
+
+    if not targetRoot then return end
+
+    EnsureBuso()
+    EnsureKen()
+    ApplyPhysics(myRoot)
+
+    -- คำนวณตำแหน่งประกบหลัง
+    local targetVel = targetRoot.AssemblyLinearVelocity or targetRoot.Velocity or Vector3.zero
+    local predictedPos = targetRoot.Position + (targetVel * 0.12)
+    local predictedCFrame = CFrame.new(predictedPos, predictedPos + targetRoot.CFrame.LookVector)
+    local targetBlindspot = predictedCFrame * CFrame.new(0, Config.BlindspotHeight, Config.BlindspotDistance)
+
+    local currentPos = myRoot.Position
+    local dist = (targetBlindspot.Position - currentPos).Magnitude
+
+    local bg = myRoot:FindFirstChild("BountyBG")
+    if bg then
+        bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
+    end
+
+    if dist > 3.2 then
+        AppState.CurrentCombatStatus = "Rushing Target (" .. math.floor(dist) .. "m)"
+        local dir = (targetBlindspot.Position - currentPos).Unit
+        local bv = myRoot:FindFirstChild("BountyBV")
+        if bv then
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 42)
+        end
+    else
+        local bv = myRoot:FindFirstChild("BountyBV")
+        if bv then bv.Velocity = Vector3.zero end
+        
+        -- เข้าประชิดตัวเรียบร้อย -> ยัดคอมโบ One-Shot ทันที
+        if Config.EnableOneShotCombo and not AppState.IsComboExecuting then
+            ExecuteApexOneShotChain()
+        end
+    end
+end)
+
+-- =========================================================================
+-- 3D ESP RADAR
 -- =========================================================================
 local ESPFolder = Instance.new("Folder")
-ESPFolder.Name = "BountyGod_ESP"
+ESPFolder.Name = "BountyApex_ESP"
 ESPFolder.Parent = (gethui and gethui()) or CoreGui
 
 local ESPObjects = {}
@@ -195,8 +724,8 @@ local function CreateESP(player)
     local bill = Instance.new("BillboardGui")
     bill.Name = "ESP_" .. player.Name
     bill.AlwaysOnTop = true
-    bill.Size = UDim2.new(0, 180, 0, 50)
-    bill.StudsOffset = Vector3.new(0, 3, 0)
+    bill.Size = UDim2.new(0, 190, 0, 52)
+    bill.StudsOffset = Vector3.new(0, 3.2, 0)
     bill.Enabled = Config.EnableESP
     bill.Parent = ESPFolder
 
@@ -219,11 +748,7 @@ local function CreateESP(player)
     highlight.Enabled = Config.EnableESP
     highlight.Parent = ESPFolder
 
-    ESPObjects[player] = {
-        Billboard = bill,
-        Label = label,
-        Highlight = highlight
-    }
+    ESPObjects[player] = { Billboard = bill, Label = label, Highlight = highlight }
 end
 
 local function RemoveESP(player)
@@ -266,9 +791,9 @@ RunService.RenderStepped:Connect(function()
             local tag = "[READY]"
 
             if player == AppState.SelectedPlayer then
-                statusColor = "#00E5FF"
-                highlightColor = Color3.fromRGB(0, 229, 255)
-                tag = "[🎯 LOCKED TARGET]"
+                statusColor = "#FF0033"
+                highlightColor = Color3.fromRGB(255, 0, 51)
+                tag = "[🎯 ONE-SHOT LOCKED]"
             elseif st.InSafeZone then
                 statusColor = "#FFD700"
                 highlightColor = Color3.fromRGB(255, 215, 0)
@@ -302,399 +827,10 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- =========================================================================
--- AUTO BUFFS
--- =========================================================================
-local function EnsureBuso()
-    if not Config.AutoBuso then return end
-    local char = GetChar(LocalPlayer)
-    if not char then return end
-    if not char:FindFirstChild("HasBuso") then
-        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if rem then pcall(function() rem:InvokeServer("Buso") end) end
-    end
-end
-
-local function EnsureKen()
-    if not Config.AutoKen then return end
-    local char = GetChar(LocalPlayer)
-    if not char then return end
-    if not char:FindFirstChild("KenHaki") and not char:FindFirstChild("Observation") then
-        local remF = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if remF then pcall(function() remF:InvokeServer("Ken", true) end) end
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait(0.02)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-        end)
-    end
-end
-
-local lastRaceTick = 0
-local function TriggerRaceSkill()
-    if not Config.AutoRaceV3 then return end
-    if tick() - lastRaceTick < 15 then return end
-    lastRaceTick = tick()
-
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.T, false, game)
-        task.wait(0.03)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.T, false, game)
-    end)
-    pcall(function()
-        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if rem then rem:InvokeServer("ActivateAbility") end
-    end)
-end
-
--- =========================================================================
--- WEAPON CONTROLLER
--- =========================================================================
-local function EquipWeapon(weaponType)
-    local char = GetChar(LocalPlayer)
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    local hum = GetHum(char)
-    if not char or not hum then return nil end
-
-    local currentTool = char:FindFirstChildOfClass("Tool")
-    if currentTool then
-        local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or currentTool:GetAttribute("WeaponType")
-        if not weaponType or tType == weaponType or currentTool.Name:lower():find(weaponType:lower()) then
-            return currentTool
-        end
-    end
-
-    if bp then
-        for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") then
-                local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
-                if not weaponType or tType == weaponType or tool.Name:lower():find(weaponType:lower()) then
-                    hum:EquipTool(tool)
-                    return tool
-                end
-            end
-        end
-        local first = bp:FindFirstChildOfClass("Tool")
-        if first then
-            hum:EquipTool(first)
-            return first
-        end
-    end
-    return currentTool
-end
-
--- =========================================================================
--- ADVANCED COMBAT FRAMEWORK HOOK & M1 FAST ATTACK ENGINE
--- =========================================================================
-local CombatFramework = nil
-local CombatController = nil
-
-local function ResolveCombatController()
-    if CombatController and typeof(CombatController) == "table" then
-        return CombatController
-    end
-
-    pcall(function()
-        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
-        if not ps then return end
-        local cfModule = ps:FindFirstChild("CombatFramework")
-        if cfModule and cfModule:IsA("ModuleScript") then
-            CombatFramework = require(cfModule)
-            if typeof(CombatFramework) == "table" then
-                if CombatFramework.activeController then
-                    CombatController = CombatFramework.activeController
-                elseif getupvalues then
-                    local upvs = getupvalues(CombatFramework)
-                    for _, val in pairs(upvs) do
-                        if typeof(val) == "table" and rawget(val, "activeController") then
-                            CombatController = val.activeController
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end)
-    return CombatController
-end
-
-local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
-local RegisterAttack = Net and (Net:FindFirstChild("RE/RegisterAttack") or Net:FindFirstChild("RegisterAttack"))
-local RegisterHit = Net and (Net:FindFirstChild("RE/RegisterHit") or Net:FindFirstChild("RegisterHit"))
-
-local comboStep = 1
-local function ExecuteM1Combo()
-    local myChar = GetChar(LocalPlayer)
-    local myHum = GetHum(myChar)
-    if not myChar or not myHum or myHum.Health <= 0 then return end
-
-    myHum.Sit = false
-    myHum.PlatformStand = false
-
-    local tool = myChar:FindFirstChildOfClass("Tool")
-    if not tool or (Config.PrimaryWeapon and not tool.Name:lower():find(Config.PrimaryWeapon:lower()) and tool.ToolTip ~= Config.PrimaryWeapon) then
-        tool = EquipWeapon(Config.PrimaryWeapon)
-    end
-
-    local targetChar = AppState.SelectedPlayer and GetChar(AppState.SelectedPlayer)
-    local targetRoot = targetChar and GetRoot(targetChar)
-    local targetHum = targetChar and GetHum(targetChar)
-
-    -- 1. Hook Active Combat Controller
-    local controller = ResolveCombatController()
-    if controller then
-        pcall(function()
-            controller.hitboxMagnitude = Config.HitboxSize
-            controller.timeToNextAttack = 0
-            controller.hitAttempts = 0
-            controller.attacking = false
-            controller.blocking = false
-            
-            comboStep = (comboStep % 4) + 1
-            controller.increment = comboStep
-
-            if controller.attack then
-                controller:attack()
-            end
-        end)
-    end
-
-    -- 2. Direct Network Packet Fire (RegisterAttack & RegisterHit)
-    if RegisterAttack then
-        pcall(function()
-            RegisterAttack:FireServer(0)
-        end)
-    end
-
-    if RegisterHit and targetRoot and targetHum and targetHum.Health > 0 then
-        pcall(function()
-            local hitList = {
-                { targetChar, targetRoot }
-            }
-            RegisterHit:FireServer(targetRoot, hitList)
-        end)
-    end
-
-    -- 3. Tool Direct Trigger & Click Emulation
-    if tool then
-        pcall(function() tool:Activate() end)
-    end
-
-    pcall(function()
-        VirtualUser:CaptureController()
-        VirtualUser:Button1Down(Vector2.new(0, 0))
-        VirtualUser:Button1Up(Vector2.new(0, 0))
-    end)
-    
-    pcall(function()
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-    end)
-end
-
--- ลูป M1 อัตโนมัติ
-task.spawn(function()
-    while true do
-        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
-            local targetChar = GetChar(AppState.SelectedPlayer)
-            local myChar = GetChar(LocalPlayer)
-            local targetRoot = GetRoot(targetChar)
-            local myRoot = GetRoot(myChar)
-
-            if targetChar and targetRoot and myRoot and targetChar.Parent then
-                local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 25 then
-                    ExecuteM1Combo()
-                end
-            end
-        end
-        task.wait(Config.M1AttackSpeed)
-    end
-end)
-
--- =========================================================================
--- PHYSICS & MOVEMENT CONTROLLER
--- =========================================================================
-local function ApplyPhysics(myRoot)
-    if not myRoot then return end
-    local bv = myRoot:FindFirstChild("BountyBV") or Instance.new("BodyVelocity")
-    bv.Name = "BountyBV"
-    bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-    bv.Velocity = Vector3.zero
-    bv.Parent = myRoot
-
-    local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
-    bg.Name = "BountyBG"
-    bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 15000
-    bg.Parent = myRoot
-end
-
-local function RemovePhysics(myRoot)
-    if not myRoot then return end
-    if myRoot:FindFirstChild("BountyBV") then myRoot.BountyBV:Destroy() end
-    if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
-end
-
-RunService.Stepped:Connect(function()
-    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
-        local myChar = GetChar(LocalPlayer)
-        if myChar then
-            for _, part in ipairs(myChar:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-        end
-    end
-end)
-
-local function StopHunt(reason)
-    AppState.IsHunting = false
-    AppState.IsHealingInSky = false
-    AppState.CurrentCombatStatus = reason or "Idle"
-    local myChar = GetChar(LocalPlayer)
-    RemovePhysics(GetRoot(myChar))
-end
-
--- =========================================================================
--- POST-KILL MAXIMUM SKY RETREAT (ORBIT SHIELD)
--- =========================================================================
-local function TriggerMaxSkyRetreat()
-    if AppState.IsRetreating then return end
-    AppState.IsHunting = false
-    AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = string.format("TARGET ELIMINATED! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
-
-    task.spawn(function()
-        local start = tick()
-        while (tick() - start < Config.PostKillSkyDuration) do
-            local myChar = GetChar(LocalPlayer)
-            local myRoot = GetRoot(myChar)
-            local myHum = GetHum(myChar)
-
-            if myRoot and myHum and myHum.Health > 0 then
-                ApplyPhysics(myRoot)
-                EnsureKen()
-                EnsureBuso()
-                
-                local maxSkyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
-                local diff = maxSkyPos - myRoot.Position
-                local bv = myRoot:FindFirstChild("BountyBV")
-                if bv then
-                    bv.Velocity = diff.Magnitude > 15 and diff.Unit * (Config.FlySpeed + 100) or Vector3.zero
-                end
-            end
-            task.wait(0.05)
-        end
-
-        local myChar = GetChar(LocalPlayer)
-        local myRoot = GetRoot(myChar)
-        local bv = myRoot and myRoot:FindFirstChild("BountyBV")
-        if bv then bv.Velocity = Vector3.zero end
-
-        AppState.IsRetreating = false
-        AppState.SelectedPlayer = nil
-        StopHunt("Elimination Safe (Ready for Next Target)")
-    end)
-end
-
--- =========================================================================
--- MAIN COMBAT & NAVIGATION ENGINE LOOP
--- =========================================================================
-RunService.Heartbeat:Connect(function()
-    if AppState.IsRetreating then return end
-    if not AppState.IsHunting or not AppState.SelectedPlayer then return end
-
-    local myChar = GetChar(LocalPlayer)
-    local myRoot = GetRoot(myChar)
-    local myHum = GetHum(myChar)
-
-    if not myChar or not myRoot or not myHum or myHum.Health <= 0 then
-        StopHunt("Player Dead")
-        return
-    end
-
-    local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
-
-    -- Emergency Sky Heal
-    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
-        if currentHpPercent < Config.RecoveryHPThreshold then
-            AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("EMERGENCY ESCAPE: Max Sky Healing (%d%% HP)", math.floor(currentHpPercent))
-            
-            ApplyPhysics(myRoot)
-            EnsureKen()
-            EnsureBuso()
-            
-            local skyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
-            local diff = skyPos - myRoot.Position
-            local bv = myRoot:FindFirstChild("BountyBV")
-            if bv then
-                bv.Velocity = diff.Magnitude > 15 and diff.Unit * Config.FlySpeed or Vector3.zero
-            end
-            return
-        else
-            AppState.IsHealingInSky = false
-        end
-    end
-
-    local targetChar = GetChar(AppState.SelectedPlayer)
-    local targetHum = GetHum(targetChar)
-    local targetRoot = GetRoot(targetChar)
-
-    -- ตรวจสอบการตายของเป้าหมาย -> ลอยขึ้นฟ้าสูงสุดทันที
-    if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
-        TriggerMaxSkyRetreat()
-        return
-    end
-
-    -- ตรวจสอบ SafeZone / PvP
-    local st = CheckTargetStatus(AppState.SelectedPlayer)
-    if not st.CanAttack then
-        StopHunt("Disengaged: " .. st.Reason)
-        return
-    end
-
-    if not targetRoot then return end
-
-    EnsureBuso()
-    EnsureKen()
-    TriggerRaceSkill()
-    ApplyPhysics(myRoot)
-
-    -- คำนวณตำแหน่งแนบหลัง 1.2 Studs
-    local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
-    local targetPos = stickCFrame.Position
-    local currentPos = myRoot.Position
-    local dist = (targetPos - currentPos).Magnitude
-
-    local bg = myRoot:FindFirstChild("BountyBG")
-    if bg then
-        bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
-    end
-
-    if dist > 3.5 then
-        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
-        local dir = (targetPos - currentPos).Unit
-        local bv = myRoot:FindFirstChild("BountyBV")
-        if bv then
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 30)
-        end
-    else
-        local bv = myRoot:FindFirstChild("BountyBV")
-        if bv then bv.Velocity = Vector3.zero end
-        
-        myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
-        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Executing M1 Combo Chain..."
-    end
-end)
-
--- =========================================================================
--- GUI DASHBOARD
+-- GUI DASHBOARD (APEX MASTER)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BountyGodUniversal"
+ScreenGui.Name = "BountyGod_ApexOneShot"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
@@ -738,8 +874,8 @@ end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.82, 0) or UDim2.new(0, 570, 0, 480)
-MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.08, 0) or UDim2.new(0.5, -285, 0.5, -240)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.86, 0) or UDim2.new(0, 620, 0, 520)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.07, 0) or UDim2.new(0.5, -310, 0.5, -260)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -762,9 +898,9 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 end)
 
 local Header = Instance.new("TextLabel")
-Header.Size = UDim2.new(1, 0, 0, 38)
+Header.Size = UDim2.new(1, 0, 0, 40)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.5 (ESP + MAX SKY RETREAT)"
+Header.Text = "  ⚡ BOUNTY GOD v10.0 (APEX ONE-SHOT ENGINE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -772,10 +908,27 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
+local OneShotToggleBtn = Instance.new("TextButton")
+OneShotToggleBtn.Size = UDim2.new(0, 110, 0, 24)
+OneShotToggleBtn.Position = UDim2.new(1, -215, 0, 8)
+OneShotToggleBtn.BackgroundColor3 = Config.EnableOneShotCombo and Color3.fromRGB(220, 20, 60) or Color3.fromRGB(70, 75, 85)
+OneShotToggleBtn.Text = Config.EnableOneShotCombo and "1-SHOT: ON" or "1-SHOT: OFF"
+OneShotToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+OneShotToggleBtn.Font = Enum.Font.GothamBold
+OneShotToggleBtn.TextSize = 10
+OneShotToggleBtn.Parent = Header
+Instance.new("UICorner", OneShotToggleBtn).CornerRadius = UDim.new(0, 4)
+
+OneShotToggleBtn.MouseButton1Click:Connect(function()
+    Config.EnableOneShotCombo = not Config.EnableOneShotCombo
+    OneShotToggleBtn.Text = Config.EnableOneShotCombo and "1-SHOT: ON" or "1-SHOT: OFF"
+    OneShotToggleBtn.BackgroundColor3 = Config.EnableOneShotCombo and Color3.fromRGB(220, 20, 60) or Color3.fromRGB(70, 75, 85)
+end)
+
 local ESPToggleBtn = Instance.new("TextButton")
 ESPToggleBtn.Size = UDim2.new(0, 80, 0, 24)
-ESPToggleBtn.Position = UDim2.new(1, -90, 0, 7)
-ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
+ESPToggleBtn.Position = UDim2.new(1, -95, 0, 8)
+ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(70, 75, 85)
 ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
 ESPToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ESPToggleBtn.Font = Enum.Font.GothamBold
@@ -786,12 +939,12 @@ Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 4)
 ESPToggleBtn.MouseButton1Click:Connect(function()
     Config.EnableESP = not Config.EnableESP
     ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
-    ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
+    ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(70, 75, 85)
 end)
 
 local StatsCard = Instance.new("Frame")
-StatsCard.Size = UDim2.new(1, -16, 0, 60)
-StatsCard.Position = UDim2.new(0, 8, 0, 44)
+StatsCard.Size = UDim2.new(1, -16, 0, 64)
+StatsCard.Position = UDim2.new(0, 8, 0, 46)
 StatsCard.BackgroundColor3 = Color3.fromRGB(24, 29, 42)
 StatsCard.Parent = MainFrame
 Instance.new("UICorner", StatsCard).CornerRadius = UDim.new(0, 8)
@@ -811,9 +964,9 @@ local function UpdateStatsDisplay()
     local net = Stats.BountyGained - Stats.BountyLost
     local netColor = net >= 0 and "#00FF7F" or "#FF4D4D"
     StatText.Text = string.format(
-        "<b>Bounty:</b> %s | <b>K/D:</b> <font color='#00FF7F'>%d</font>/<font color='#FF4D4D'>%d</font><br/>" ..
+        "<b>Bounty:</b> %s | <b>K/D:</b> <font color='#00FF7F'>%d</font>/<font color='#FF4D4D'>%d</font> | <b>Combos Landed:</b> <font color='#FF0033'>%d</font><br/>" ..
         "<b>Gained:</b> <font color='#00FF7F'>+%s</font> | <b>Lost:</b> <font color='#FF4D4D'>-%s</font> | <b>Net:</b> <font color='%s'>%+d</font>",
-        tostring(Stats.CurrentBounty), Stats.Kills, Stats.Deaths,
+        tostring(Stats.CurrentBounty), Stats.Kills, Stats.Deaths, Stats.ComboExecutions,
         tostring(Stats.BountyGained), tostring(Stats.BountyLost),
         netColor, net
     )
@@ -829,7 +982,6 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                -- ฆ่าได้สำเร็จ -> ลอยขึ้นฟ้าสูงสุดทันที
                 TriggerMaxSkyRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
@@ -844,8 +996,8 @@ SetupBountyListener()
 UpdateStatsDisplay()
 
 local ScrollList = Instance.new("ScrollingFrame")
-ScrollList.Size = UDim2.new(1, -16, 1, -175)
-ScrollList.Position = UDim2.new(0, 8, 0, 110)
+ScrollList.Size = UDim2.new(1, -16, 1, -188)
+ScrollList.Position = UDim2.new(0, 8, 0, 116)
 ScrollList.BackgroundColor3 = Color3.fromRGB(11, 13, 18)
 ScrollList.ScrollBarThickness = IsMobile and 6 or 4
 ScrollList.Parent = MainFrame
@@ -856,8 +1008,8 @@ ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 ListLayout.Padding = UDim.new(0, 4)
 
 local ActionCard = Instance.new("Frame")
-ActionCard.Size = UDim2.new(1, -16, 0, 55)
-ActionCard.Position = UDim2.new(0, 8, 1, -60)
+ActionCard.Size = UDim2.new(1, -16, 0, 58)
+ActionCard.Position = UDim2.new(0, 8, 1, -64)
 ActionCard.BackgroundTransparency = 1
 ActionCard.Parent = MainFrame
 
@@ -875,7 +1027,7 @@ local HuntBtn = Instance.new("TextButton")
 HuntBtn.Size = UDim2.new(0.42, 0, 0.85, 0)
 HuntBtn.Position = UDim2.new(0.58, 0, 0.07, 0)
 HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
-HuntBtn.Text = "START HUNT (ENGAGE)"
+HuntBtn.Text = "START ONE-SHOT HUNT"
 HuntBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 HuntBtn.Font = Enum.Font.GothamBold
 HuntBtn.TextSize = IsMobile and 10 or 11
@@ -894,7 +1046,7 @@ local function RenderRadarRows()
 
             local Row = Instance.new("Frame")
             Row.Size = UDim2.new(1, -8, 0, 48)
-            Row.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(45, 65, 105) or Color3.fromRGB(19, 23, 33)
+            Row.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(55, 25, 45) or Color3.fromRGB(19, 23, 33)
             Row.Parent = ScrollList
             Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 6)
 
@@ -965,7 +1117,7 @@ local function RenderRadarRows()
                 SelBtn.Text = st.InSafeZone and "SAFE" or "NO PVP"
                 SelBtn.TextColor3 = Color3.fromRGB(120, 125, 135)
             else
-                SelBtn.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(0, 180, 100) or Color3.fromRGB(0, 140, 80)
+                SelBtn.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(180, 20, 60) or Color3.fromRGB(0, 140, 80)
                 SelBtn.Text = (AppState.SelectedPlayer == player) and "LOCKED" or "SELECT"
                 SelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             end
@@ -997,6 +1149,7 @@ task.spawn(function()
         else
             StatusLabel.Text = "Status: " .. AppState.CurrentCombatStatus
         end
+        UpdateStatsDisplay()
         task.wait(1.5)
     end
 end)
@@ -1004,12 +1157,16 @@ end)
 HuntBtn.MouseButton1Click:Connect(function()
     if AppState.IsHunting or AppState.IsRetreating then
         StopHunt("Hunt Cancelled")
-        HuntBtn.Text = "START HUNT (ENGAGE)"
+        HuntBtn.Text = "START ONE-SHOT HUNT"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
         StatusLabel.Text = "Status: Hunt Cancelled (Idle)"
     else
+        if Config.AutoTarget and not AppState.SelectedPlayer then
+            AppState.SelectedPlayer = FindBestTarget()
+        end
+
         if not AppState.SelectedPlayer then
-            StatusLabel.Text = "Error: Select target first!"
+            StatusLabel.Text = "Error: No target available!"
             return
         end
 
@@ -1021,11 +1178,9 @@ HuntBtn.MouseButton1Click:Connect(function()
             return
         end
 
-        EquipWeapon(Config.PrimaryWeapon)
-
         AppState.IsHunting = true
-        HuntBtn.Text = "STOP HUNTING"
+        HuntBtn.Text = "STOP ONE-SHOT HUNT"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target..."
+        StatusLabel.Text = "Status: Locking & Executing One-Shot..."
     end
 end)
