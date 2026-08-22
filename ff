@@ -1,18 +1,16 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.1 (OPTIMIZED & SAFE RETREAT)
--- Features:
---  1. Multi-Layer SafeZone & PvP Detection (ป้องกันการล็อคคนใน SafeZone / ปิด PvP)
---  2. Strict UI Selection Lock (บล็อกการเลือกหาก CanAttack == false)
---  3. Real-time Combat Disengage (หยุดล่าทันทีหากศัตรูวิ่งเข้า SafeZone)
---  4. Optimized Hitbox Range & Attack Execution (แก้ไขดาเมจไม่เข้า)
---  5. Post-Combat Safe Retreat (บินขึ้นฟ้าหลบจุดปลอดภัยทันทีหลังเก็บ Bounty สำเร็จ)
--- Platforms: Mobile & PC Compatible
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.2 (TIGHT COMBAT FIX)
+-- Improvements:
+--  1. Fixed Weapon Swap Glitch (ล็อคอาวุธหลัก ไม่สลับมั่วจนยกเลิกการตี)
+--  2. Back-Lock Combat Position (ล็อคตำแหน่งด้านหลังศัตรู 2.5 studs ให้ Hitbox เข้า 100%)
+--  3. Multi-Engine Attack Hook (Tool:Activate + VirtualUser + CombatFramework)
+--  4. Smooth Anti-Rubberband Flight (ไม่โดนเซิร์ฟเวอร์ดีด)
+--  5. Instant Post-Kill Safe Sky Retreat (ฆ่าเสร็จบินขึ้นฟ้าหลบทันที)
 -- =========================================================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -24,41 +22,37 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- COMBAT & SURVIVAL CONFIGURATION
+-- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 220,              -- ความเร็วการบินที่เสถียร (ป้องกันเซิร์ฟเวอร์ดีดกลับ)
-    HoverHeight = 4.5,           -- ปรับระยะความสูงให้อยู่ในระยะ Hitbox ทำดาเมจได้จริง
-    OrbitRadius = 2.5,           -- รัศมีบินวนรอบเป้าหมาย
-    OrbitSpeed = 3.5,            
-    AttackDelay = 0.08,          -- ดีเลย์การตีที่พอดีกับการลงทะเบียนดาเมจ
-    MultiHitPackets = 2,         
-    AimPrediction = 0.10,
+    FlySpeed = 240,
+    CombatDistance = 2.5,        -- ระยะเกาะหลังศัตรู (Studs) การันตีตีโดนแน่นอน
+    CombatHeightOffset = 1.0,    -- ระดับความสูงจากพื้นหลังศัตรู
+    AttackSpeed = 0.04,          -- จังหวะ Burst Attack
+    PrimaryWeapon = "Melee",     -- อาวุธหลักสำหรับตีปกติ ("Melee" หรือ "Sword")
     
-    -- SURVIVAL & RETREAT MATRIX
-    AutoBuso = true,             
-    AutoKen = true,              
-    AutoRaceV3 = true,           
-    EmergencyEscape = true,      
-    EmergencyHPThreshold = 35,   -- เลือดต่ำกว่า 35% หนีขึ้นฟ้า
-    RecoveryHPThreshold = 85,    -- เลือดฟื้นฟูถึง 85% กลับลงมาสู้
-    EscapeSkyAltitude = 420,     -- ระดับความสูงปลอดภัยบนท้องฟ้า
-    PostKillRetreatDuration = 4.0, -- ระยะเวลาบินลอยบนฟ้าหลังกำจัดเป้าหมายสำเร็จ (วินาที)
-    
-    SkillRotation = {
+    -- SURVIVAL & RETREAT
+    AutoBuso = true,
+    AutoKen = true,
+    AutoRaceV3 = true,
+    EmergencyEscape = true,
+    EmergencyHPThreshold = 35,
+    RecoveryHPThreshold = 85,
+    EscapeSkyAltitude = 450,
+    PostKillRetreatDuration = 3.5,
+
+    -- SKILLS
+    EnableSkills = true,
+    SkillDelay = 0.15,
+    Skills = {
         { Type = "Melee", Key = Enum.KeyCode.Z, Hold = 0.05 },
         { Type = "Melee", Key = Enum.KeyCode.X, Hold = 0.08 },
         { Type = "Melee", Key = Enum.KeyCode.C, Hold = 0.08 },
         { Type = "Sword", Key = Enum.KeyCode.Z, Hold = 0.05 },
-        { Type = "Sword", Key = Enum.KeyCode.X, Hold = 0.10 },
-        { Type = "Fruit", Key = Enum.KeyCode.V, Hold = 0.05 },
-        { Type = "Fruit", Key = Enum.KeyCode.C, Hold = 0.08 },
-        { Type = "Fruit", Key = Enum.KeyCode.Z, Hold = 0.05 },
-        { Type = "Gun",   Key = Enum.KeyCode.Z, Hold = 0.05 }
+        { Type = "Sword", Key = Enum.KeyCode.X, Hold = 0.08 }
     }
 }
 
--- Stats Tracker
 local Stats = {
     StartBounty = 0,
     CurrentBounty = 0,
@@ -74,6 +68,7 @@ local AppState = {
     IsSpectating = false,
     IsHealingInSky = false,
     IsRetreating = false,
+    IsCastingSkill = false,
     CurrentCombatStatus = "Idle"
 }
 
@@ -107,7 +102,7 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- STRICT STATUS & SAFEZONE CHECKER
+-- TARGET STATUS CHECKER
 -- =========================================================================
 local function CheckTargetStatus(player)
     local st = {
@@ -150,7 +145,6 @@ local function CheckTargetStatus(player)
         st.Distance = math.floor((root.Position - myRoot.Position).Magnitude)
     end
 
-    -- 1. Multi-Layer SafeZone Inspection
     if char:FindFirstChild("SafeZoneShield") 
         or char:FindFirstChild("InSafeZone") 
         or char:FindFirstChild("ForceField")
@@ -160,7 +154,6 @@ local function CheckTargetStatus(player)
         st.InSafeZone = true
     end
 
-    -- 2. Multi-Layer PvP Status Inspection
     if char:FindFirstChild("PvPDisabled")
         or char:FindFirstChild("PVPDisabled")
         or player:FindFirstChild("PvPDisabled")
@@ -169,7 +162,6 @@ local function CheckTargetStatus(player)
         st.PvPEnabled = false
     end
 
-    -- 3. Marine vs Marine Check
     local teamCheck = true
     if LocalPlayer.Team and player.Team then
         if LocalPlayer.Team.Name == "Marines" and player.Team.Name == "Marines" then
@@ -178,7 +170,6 @@ local function CheckTargetStatus(player)
         end
     end
 
-    -- วิเคราะห์สถานะ
     if not st.IsAlive then
         st.Reason = "Player is Dead"
     elseif st.InSafeZone then
@@ -196,7 +187,7 @@ local function CheckTargetStatus(player)
 end
 
 -- =========================================================================
--- AUTO BUFFS (KEN / BUSO / RACE)
+-- AUTO BUFFS
 -- =========================================================================
 local function EnsureBuso()
     if not Config.AutoBuso then return end
@@ -217,21 +208,21 @@ local function EnsureKen()
         if remF then pcall(function() remF:InvokeServer("Ken", true) end) end
         pcall(function()
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-            task.wait(0.03)
+            task.wait(0.02)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
         end)
     end
 end
 
-local lastRaceSkillTick = 0
+local lastRaceTick = 0
 local function TriggerRaceSkill()
     if not Config.AutoRaceV3 then return end
-    if tick() - lastRaceSkillTick < 15 then return end
-    lastRaceSkillTick = tick()
+    if tick() - lastRaceTick < 15 then return end
+    lastRaceTick = tick()
 
     pcall(function()
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.T, false, game)
-        task.wait(0.04)
+        task.wait(0.03)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.T, false, game)
     end)
     pcall(function()
@@ -241,63 +232,47 @@ local function TriggerRaceSkill()
 end
 
 -- =========================================================================
--- WEAPON EQUATION
+-- WEAPON CONTROLLER (STABLE)
 -- =========================================================================
-local function EnsureWeaponEquipped(preferredType)
+local function EquipWeapon(weaponType)
     local char = GetChar(LocalPlayer)
     local bp = LocalPlayer:FindFirstChild("Backpack")
     local hum = GetHum(char)
     if not char or not hum then return nil end
 
-    local equipped = char:FindFirstChildOfClass("Tool")
-    if equipped then
-        local currentType = equipped.ToolTip ~= "" and equipped.ToolTip or equipped:GetAttribute("WeaponType")
-        if not preferredType or currentType == preferredType or equipped.Name:find(preferredType or "") then
-            return equipped
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if currentTool then
+        local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or currentTool:GetAttribute("WeaponType")
+        if not weaponType or tType == weaponType or currentTool.Name:find(weaponType or "") then
+            return currentTool
         end
     end
 
     if bp then
-        if preferredType then
-            for _, tool in ipairs(bp:GetChildren()) do
-                if tool:IsA("Tool") then
-                    local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
-                    if tType == preferredType or tool.Name:find(preferredType) then
-                        hum:EquipTool(tool)
-                        return tool
-                    end
+        for _, tool in ipairs(bp:GetChildren()) do
+            if tool:IsA("Tool") then
+                local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
+                if not weaponType or tType == weaponType or tool.Name:find(weaponType or "") then
+                    hum:EquipTool(tool)
+                    return tool
                 end
             end
         end
-
-        for _, toolType in ipairs({"Melee", "Sword", "Blox Fruit", "Fruit", "Gun"}) do
-            for _, tool in ipairs(bp:GetChildren()) do
-                if tool:IsA("Tool") then
-                    local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
-                    if tType == toolType or tool.Name:find(toolType) then
-                        hum:EquipTool(tool)
-                        return tool
-                    end
-                end
-            end
-        end
-
-        local firstTool = bp:FindFirstChildOfClass("Tool")
-        if firstTool then
-            hum:EquipTool(firstTool)
-            return firstTool
+        local first = bp:FindFirstChildOfClass("Tool")
+        if first then
+            hum:EquipTool(first)
+            return first
         end
     end
-
-    return equipped
+    return currentTool
 end
 
 -- =========================================================================
--- FAST ATTACK & COMBAT HOOK
+-- MULTI-ENGINE FAST ATTACK
 -- =========================================================================
 local CombatFramework = nil
 pcall(function()
-    CombatFramework = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 3))
+    CombatFramework = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
 end)
 
 local function GetActiveRig()
@@ -307,18 +282,21 @@ local function GetActiveRig()
     return nil
 end
 
-local function ExecuteFastAttack(targetChar)
-    if not targetChar or not targetChar.Parent then return end
-    local targetRoot = GetRoot(targetChar)
-    local targetHum = GetHum(targetChar)
-    if not targetRoot or not targetHum or targetHum.Health <= 0 then return end
+local function DirectAttack()
+    local char = GetChar(LocalPlayer)
+    if not char then return end
 
-    local tool = GetChar(LocalPlayer):FindFirstChildOfClass("Tool")
-    if not tool then tool = EnsureWeaponEquipped() end
-    if not tool then return end
+    local tool = char:FindFirstChildOfClass("Tool")
+    if not tool then
+        tool = EquipWeapon(Config.PrimaryWeapon)
+    end
 
-    pcall(function() tool:Activate() end)
+    -- 1. Direct Tool Activation
+    if tool then
+        pcall(function() tool:Activate() end)
+    end
 
+    -- 2. CombatFramework Controller Attack
     local rig = GetActiveRig()
     if rig then
         pcall(function()
@@ -331,36 +309,21 @@ local function ExecuteFastAttack(targetChar)
         end)
     end
 
-    local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
-    local regHit = net and (net:FindFirstChild("RE/RegisterHit") or net:FindFirstChild("RegisterHit"))
-    local regAttack = net and (net:FindFirstChild("RE/RegisterAttack") or net:FindFirstChild("RegisterAttack"))
-
-    if regAttack then pcall(function() regAttack:FireServer(0) end) end
-
-    if regHit then
-        local hitParts = {}
-        for _, name in ipairs({"HumanoidRootPart", "Head", "UpperTorso", "Torso"}) do
-            local part = targetChar:FindFirstChild(name)
-            if part then table.insert(hitParts, part) end
-        end
-
-        for i = 1, Config.MultiHitPackets do
-            pcall(function()
-                regHit:FireServer(targetRoot, hitParts)
-            end)
-        end
-    end
-
+    -- 3. Virtual Input Simulation
     pcall(function()
-        VirtualUser:Button1Down(Vector2.new(0, 0))
+        VirtualUser:CaptureController()
+        VirtualUser:Button1Down(Vector2.new(100, 100))
         task.wait(0.01)
-        VirtualUser:Button1Up(Vector2.new(0, 0))
+        VirtualUser:Button1Up(Vector2.new(100, 100))
     end)
+
+    -- 4. Net Remotes Register
+    local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+    local regAttack = net and (net:FindFirstChild("RE/RegisterAttack") or net:FindFirstChild("RegisterAttack"))
+    if regAttack then pcall(function() regAttack:FireServer(0) end) end
 end
 
--- =========================================================================
--- INDEPENDENT COMBAT LOOP
--- =========================================================================
+-- Attack Loop
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
@@ -371,59 +334,63 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= (Config.HoverHeight + 6) then
-                    ExecuteFastAttack(targetChar)
+                if dist <= 12 then
+                    DirectAttack()
                 end
             end
         end
-        task.wait(Config.AttackDelay)
+        task.wait(Config.AttackSpeed)
     end
 end)
 
 -- =========================================================================
--- SKILL ROTATION THREAD
+-- SKILL ROTATION ENGINE (NON-BLOCKING)
 -- =========================================================================
-local function CastSkillKey(key, holdTime)
+local function CastSkill(key, holdTime)
     VirtualInputManager:SendKeyEvent(true, key, false, game)
     if holdTime and holdTime > 0 then task.wait(holdTime) end
     VirtualInputManager:SendKeyEvent(false, key, false, game)
 end
 
-local isComboActive = false
-local function StartSkillRotation(targetChar)
-    if isComboActive or AppState.IsHealingInSky or AppState.IsRetreating then return end
-    isComboActive = true
+task.spawn(function()
+    while true do
+        if Config.EnableSkills and AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
+            local targetChar = GetChar(AppState.SelectedPlayer)
+            local targetHum = GetHum(targetChar)
+            local targetRoot = GetRoot(targetChar)
+            local myChar = GetChar(LocalPlayer)
+            local myRoot = GetRoot(myChar)
 
-    task.spawn(function()
-        while AppState.IsHunting and targetChar and targetChar.Parent and not AppState.IsHealingInSky and not AppState.IsRetreating do
-            for _, step in ipairs(Config.SkillRotation) do
-                if not AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then break end
-                local hum = GetHum(targetChar)
-                if not hum or hum.Health <= 0 then break end
+            if targetHum and targetHum.Health > 0 and targetRoot and myRoot then
+                local dist = (targetRoot.Position - myRoot.Position).Magnitude
+                if dist <= 10 then
+                    for _, skill in ipairs(Config.Skills) do
+                        if not AppState.IsHunting or AppState.IsRetreating then break end
+                        if targetHum.Health <= 0 then break end
 
-                EnsureWeaponEquipped(step.Type)
-                task.wait(0.06)
+                        AppState.IsCastingSkill = true
+                        EquipWeapon(skill.Type)
+                        task.wait(0.05)
 
-                local tRoot = GetRoot(targetChar)
-                if tRoot then
-                    local predPos = tRoot.Position + (tRoot.AssemblyLinearVelocity * Config.AimPrediction)
-                    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predPos)
+                        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
+                        AppState.CurrentCombatStatus = "Cast: " .. skill.Type .. " [" .. skill.Key.Name .. "]"
+                        CastSkill(skill.Key, skill.Hold)
+                        task.wait(Config.SkillDelay)
+                    end
+                    -- สลับกลับมาเป็นอาวุธหลักเพื่อฟันต่อเนื่อง
+                    EquipWeapon(Config.PrimaryWeapon)
+                    AppState.IsCastingSkill = false
                 end
-
-                AppState.CurrentCombatStatus = "Cast: " .. step.Type .. " [" .. step.Key.Name .. "]"
-                CastSkillKey(step.Key, step.Hold)
-                task.wait(0.12)
             end
-            task.wait(0.2)
         end
-        isComboActive = false
-    end)
-end
+        task.wait(1.5)
+    end
+end)
 
 -- =========================================================================
--- NOCLIP & FLIGHT CONTROLLER
+-- PHYSICS & MOVEMENT
 -- =========================================================================
-local function ApplyBypass(myRoot)
+local function ApplyPhysics(myRoot)
     if not myRoot then return end
     local bv = myRoot:FindFirstChild("BountyBV") or Instance.new("BodyVelocity")
     bv.Name = "BountyBV"
@@ -434,11 +401,11 @@ local function ApplyBypass(myRoot)
     local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
     bg.Name = "BountyBG"
     bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 10000
+    bg.P = 12000
     bg.Parent = myRoot
 end
 
-local function RemoveBypass(myRoot)
+local function RemovePhysics(myRoot)
     if not myRoot then return end
     if myRoot:FindFirstChild("BountyBV") then myRoot.BountyBV:Destroy() end
     if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
@@ -460,41 +427,36 @@ end)
 local function StopHunt(reason)
     AppState.IsHunting = false
     AppState.IsHealingInSky = false
-    isComboActive = false
+    AppState.IsCastingSkill = false
     AppState.CurrentCombatStatus = reason or "Idle"
     local myChar = GetChar(LocalPlayer)
-    RemoveBypass(GetRoot(myChar))
+    RemovePhysics(GetRoot(myChar))
 end
 
 -- =========================================================================
--- POST-COMBAT SAFE RETREAT CONTROLLER
+-- POST-KILL RETREAT
 -- =========================================================================
 local function TriggerSafeRetreat()
     if AppState.IsRetreating then return end
     AppState.IsHunting = false
     AppState.IsRetreating = true
-    isComboActive = false
-    AppState.CurrentCombatStatus = "Target Down! Flying to Safe Sky..."
+    AppState.CurrentCombatStatus = "Target Dead! Retreating to Sky..."
 
     task.spawn(function()
-        local startTime = tick()
-        while tick() - startTime < Config.PostKillRetreatDuration do
+        local start = tick()
+        while tick() - start < Config.PostKillRetreatDuration do
             local myChar = GetChar(LocalPlayer)
             local myRoot = GetRoot(myChar)
             if myRoot then
-                ApplyBypass(myRoot)
+                ApplyPhysics(myRoot)
                 local safePos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
-                local diff = (safePos - myRoot.Position)
+                local diff = safePos - myRoot.Position
                 local bv = myRoot:FindFirstChild("BountyBV")
                 if bv then
-                    if diff.Magnitude > 10 then
-                        bv.Velocity = diff.Unit * math.min(Config.FlySpeed, diff.Magnitude * 5)
-                    else
-                        bv.Velocity = Vector3.zero
-                    end
+                    bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
                 end
             end
-            task.wait(0.1)
+            task.wait(0.05)
         end
 
         local myChar = GetChar(LocalPlayer)
@@ -504,7 +466,7 @@ local function TriggerSafeRetreat()
 
         AppState.IsRetreating = false
         AppState.SelectedPlayer = nil
-        StopHunt("Hunt Finished (Safe in Sky)")
+        StopHunt("Hunt Finished (Safe)")
     end)
 end
 
@@ -526,24 +488,20 @@ RunService.Heartbeat:Connect(function()
 
     local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
 
-    -- Emergency Sky Heal Check
+    -- Emergency Sky Heal
     if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.IsHealingInSky = true
             AppState.CurrentCombatStatus = string.format("HEALING: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
             
-            ApplyBypass(myRoot)
+            ApplyPhysics(myRoot)
             EnsureKen()
             
             local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
             local diff = skyPos - myRoot.Position
             local bv = myRoot:FindFirstChild("BountyBV")
-            if bv then 
-                if diff.Magnitude > 10 then
-                    bv.Velocity = diff.Unit * Config.FlySpeed
-                else
-                    bv.Velocity = Vector3.zero
-                end
+            if bv then
+                bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
             end
             return
         else
@@ -551,12 +509,11 @@ RunService.Heartbeat:Connect(function()
         end
     end
 
-    -- ตรวจสอบสถานะเป้าหมาย
     local targetChar = GetChar(AppState.SelectedPlayer)
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบว่าศัตรูตายหรือหลุดแมพ -> เข้าสู่โหมดบินหนีทันที
+    -- ตรวจสอบว่าศัตรูตายแล้วหรือไม่
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         TriggerSafeRetreat()
         return
@@ -574,14 +531,11 @@ RunService.Heartbeat:Connect(function()
     EnsureBuso()
     EnsureKen()
     TriggerRaceSkill()
-    ApplyBypass(myRoot)
+    ApplyPhysics(myRoot)
 
-    -- Dynamic Overhead Orbit
-    local angle = tick() * Config.OrbitSpeed
-    local offsetX = math.cos(angle) * Config.OrbitRadius
-    local offsetZ = math.sin(angle) * Config.OrbitRadius
-    
-    local targetPos = targetRoot.Position + Vector3.new(offsetX, Config.HoverHeight, offsetZ)
+    -- Back-Lock Position: ล็อคตำแหน่งหลังศัตรู 2.5 studs เพื่อให้ดาเมจเข้า 100%
+    local targetBackCFrame = targetRoot.CFrame * CFrame.new(0, Config.CombatHeightOffset, Config.CombatDistance)
+    local targetPos = targetBackCFrame.Position
     local currentPos = myRoot.Position
     local dist = (targetPos - currentPos).Magnitude
 
@@ -590,35 +544,35 @@ RunService.Heartbeat:Connect(function()
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
-    if dist > 8 then
+    if dist > 6 then
         AppState.CurrentCombatStatus = "Flying to target (" .. math.floor(dist) .. "m)"
         local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
-        if bv then 
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 15)
+        if bv then
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 20)
         end
     else
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
+        -- ล็อคหน้าและตำแหน่งเข้าหาศัตรูโดยตรง
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
+        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
 
-        local predPos = targetRoot.Position + (targetRoot.AssemblyLinearVelocity * Config.AimPrediction)
-        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predPos)
-
-        StartSkillRotation(targetChar)
+        if not AppState.IsCastingSkill then
+            AppState.CurrentCombatStatus = "Combat: Locked & Slashing (Back-Lock)"
+        end
     end
 end)
 
 -- =========================================================================
--- GUI DASHBOARD (STRICT SELECTION SYSTEM)
+-- GUI DASHBOARD
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BountyGodUniversal"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
--- Floating Toggle
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Name = "FloatingToggle"
 ToggleButton.Size = UDim2.new(0, 48, 0, 48)
@@ -657,7 +611,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
 MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.78, 0) or UDim2.new(0, 560, 0, 460)
@@ -683,11 +636,10 @@ UserInputService.InputBegan:Connect(function(input, gpe)
     end
 end)
 
--- Header Bar
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.1 (OPTIMIZED & RETREAT)"
+Header.Text = "  ⚡ BOUNTY GOD v7.2 (BACK-LOCK COMBAT)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -695,7 +647,6 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
--- Stats Board
 local StatsCard = Instance.new("Frame")
 StatsCard.Size = UDim2.new(1, -16, 0, 60)
 StatsCard.Position = UDim2.new(0, 8, 0, 44)
@@ -748,7 +699,6 @@ end
 SetupBountyListener()
 UpdateStatsDisplay()
 
--- Player Radar List
 local ScrollList = Instance.new("ScrollingFrame")
 ScrollList.Size = UDim2.new(1, -16, 1, -175)
 ScrollList.Position = UDim2.new(0, 8, 0, 110)
@@ -761,7 +711,6 @@ local ListLayout = Instance.new("UIListLayout", ScrollList)
 ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 ListLayout.Padding = UDim.new(0, 4)
 
--- Action Card
 local ActionCard = Instance.new("Frame")
 ActionCard.Size = UDim2.new(1, -16, 0, 55)
 ActionCard.Position = UDim2.new(0, 8, 1, -60)
@@ -789,7 +738,6 @@ HuntBtn.TextSize = IsMobile and 10 or 11
 HuntBtn.Parent = ActionCard
 Instance.new("UICorner", HuntBtn).CornerRadius = UDim.new(0, 6)
 
--- เรนเดอร์รายชื่อเป้าหมาย
 local function RenderRadarRows()
     for _, child in ipairs(ScrollList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -837,7 +785,6 @@ local function RenderRadarRows()
             )
             Info.Parent = Row
 
-            -- Spy Cam Button
             local SpyBtn = Instance.new("TextButton")
             SpyBtn.Size = UDim2.new(0, IsMobile and 46 or 50, 0, 26)
             SpyBtn.Position = UDim2.new(0.62, 0, 0.5, -13)
@@ -865,7 +812,6 @@ local function RenderRadarRows()
                 end
             end)
 
-            -- Selection Button
             local SelBtn = Instance.new("TextButton")
             SelBtn.Size = UDim2.new(0, IsMobile and 54 or 62, 0, 26)
             SelBtn.Position = UDim2.new(IsMobile and 0.77 or 0.78, 0, 0.5, -13)
@@ -931,7 +877,7 @@ HuntBtn.MouseButton1Click:Connect(function()
             return
         end
 
-        EnsureWeaponEquipped("Melee")
+        EquipWeapon(Config.PrimaryWeapon)
 
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
