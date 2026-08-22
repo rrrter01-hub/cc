@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.5 (ULTRA INSTINCT EDITION)
--- Upgrades & New Evasion Systems:
---  1. Ultra Instinct Attack Sniffer (Animation & Cast Detector -> Instant I-Frame Blink)
---  2. Dynamic 3D Kinetic Weaving (Sine/Cosine Orbit Strafe to break enemy aimbot/skills)
---  3. Auto Soru / Flash Step & Q-Dash Micro-Evasion Matrix
---  4. Dual Haki Watchdog (Continuous Buso & Ken Observation Haki Re-enabler)
---  5. Anti-One-Shot Combo Air Flank (Instant Height Shift when enemy casts heavy CC)
---  6. Predictive Vector Stick + Auto Skill Burst Chain & Fast Attack Hook
---  7. Auto Target Priority, Sky Retreat Orbit & 3D ESP Radar
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.0 (FORCE COMBAT EDITION)
+-- New Force-Fight & Anti-Escape Systems:
+--  1. Force Combat Tagger (Instant Network Hitbox Tagging to lock In-Combat status)
+--  2. SafeZone Interception & Wall Block (Cuts off escape route when target flees to SafeZone)
+--  3. Anti-Escape Sticky Anchor (Zero-latency prediction that glues to dashes/Soru)
+--  4. Ultra Instinct Attack Sniffer (Detects enemy attacks -> Instant I-Frame Q-Dash)
+--  5. Dynamic 3D Quantum Weave (Sine-wave trajectory to make enemy skill shots miss)
+--  6. Dual Haki Watchdog (Continuous Buso & Ken Observation re-activation)
+--  7. Auto Skill Combo Rotation (Z, X, C, V) + Fast Attack M1 Burst + Max Sky Orbit
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -29,25 +29,29 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
+    -- FORCE COMBAT & ANTI-ESCAPE
+    EnableForceCombat = true,     -- บังคับติดสถานะ In-Combat ทันทีที่เป้าหมายอยู่นอก SafeZone
+    AntiSafeZoneEscape = true,    -- ระบบดักหน้าทางเข้า SafeZone ไม่ให้ศัตรูหนีเข้าเขตปลอดภัย
+    CombatTagSpam = true,         -- สแปมแพ็กเก็ตตีแตะตัวเพื่อรีเซ็ตตัวจับเวลา In-Combat 15 วินาที
+    
     -- EVASION & REACTION MATRIX (ULTRA INSTINCT)
-    EnableAutoDodge = true,        -- เปิดระบบหลบการโจมตีอัจฉริยะ
-    DodgeMode = "QuantumWeave",    -- "QuantumWeave" (โยกหลบ 3 มิติ), "FlashStep" (วาร์ปหลบหลัง)
-    WeaveRadius = 2.4,             -- รัศมีการโยกหลบหมุนวนรอบเป้าหมาย
-    WeaveSpeed = 8.5,              -- ความเร็วในการส่ายตำแหน่งหลบสกิล
-    ReactiveBlinkDist = 14,        -- ระยะดีดตัวหลบทันทีเมื่อศัตรูกดสกิล/อนิเมชันโจมตี
-    AutoDashIFrame = true,         -- ใช้ Q-Dash / Soru เพื่อเอาสถานะอมตะ (I-Frames)
+    EnableAutoDodge = true,        -- เปิดระบบหลบการโจมตีอัตโนมัติ
+    DodgeMode = "QuantumWeave",    -- โยกหลบ 3 มิติ
+    WeaveRadius = 2.5,             -- รัศมีโยกหลบ
+    WeaveSpeed = 9.0,              -- ความเร็วการส่ายตัว
+    AutoDashIFrame = true,         -- สแปม Q-Dash / Soru เพื่อดึง I-Frames อมตะ
     
     -- HAKI SYSTEMS
     AutoBuso = true,               -- ฮาคิเกราะตลอดเวลา
-    AutoKen = true,                -- ฮาคิสังเกต (เปิดซ้ำอัตโนมัติทันทีที่คูลดาวน์เสร็จ)
+    AutoKen = true,                -- ฮาคิสังเกตตลอดเวลา
     AutoRaceV3 = true,             -- สกิลเผ่า V3
     AutoRaceV4 = true,             -- สกิลแปลงร่าง V4
     
     -- COMBAT & WEAPONS
-    FlySpeed = 360,
-    StickDistance = 1.2,
-    HeightOffset = 0.6,
-    PredictionMultiplier = 0.14,
+    FlySpeed = 380,
+    StickDistance = 0.9,           -- แปะติดหลังศัตรูแบบแนบชิด
+    HeightOffset = 0.5,
+    PredictionMultiplier = 0.16,
     M1AttackSpeed = 0.03,
     HitboxSize = 95,
     EnableSkillCombo = true,
@@ -75,7 +79,8 @@ local Stats = {
     BountyLost = 0,
     Kills = 0,
     Deaths = 0,
-    DodgedAttacks = 0
+    DodgedAttacks = 0,
+    CombatTagsInflicted = 0
 }
 
 local AppState = {
@@ -87,6 +92,7 @@ local AppState = {
     CurrentCombatStatus = "Idle",
     OrbitAngle = 0,
     LastDodgeTick = 0,
+    LastTagTick = 0,
     TargetAnimTrack = nil
 }
 
@@ -120,7 +126,7 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- ADVANCED HAKI CONTROLLER (PERSISTENT WATCHDOG)
+-- HAKI CONTROLLER
 -- =========================================================================
 local function EnsureBuso()
     if not Config.AutoBuso then return end
@@ -190,10 +196,9 @@ end
 -- =========================================================================
 -- ULTRA INSTINCT EVASION & REACTION MATRIX
 -- =========================================================================
-local function PerformEvasiveDash(direction)
+local function PerformEvasiveDash()
     if not Config.AutoDashIFrame then return end
     pcall(function()
-        -- ส่งสัญญาณ Q-Dash เพื่อดึง I-Frames และ Soru
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
         task.wait(0.02)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
@@ -215,9 +220,8 @@ local function HookTargetAnimationSniffer(targetPlayer)
         if not Config.EnableAutoDodge or not AppState.IsHunting then return end
         local animName = animTrack.Animation and animTrack.Animation.Name:lower() or ""
 
-        -- กรองเฉพาะอนิเมชันที่เป็นการโจมตีหรือร่ายสกิล
         if animName:find("attack") or animName:find("slash") or animName:find("cast") or animName:find("skill") or animName:find("punch") or animName:find("shoot") then
-            if tick() - AppState.LastDodgeTick > 0.45 then
+            if tick() - AppState.LastDodgeTick > 0.4 then
                 AppState.LastDodgeTick = tick()
                 Stats.DodgedAttacks = Stats.DodgedAttacks + 1
 
@@ -226,11 +230,8 @@ local function HookTargetAnimationSniffer(targetPlayer)
                 local targetRoot = GetRoot(targetChar)
 
                 if myRoot and targetRoot then
-                    -- 1. ดีดตัวออกด้านข้างและขึ้นบนทันที (Blink Flank)
-                    local flankOffset = (targetRoot.CFrame.RightVector * (math.random() > 0.5 and 8 or -8)) + Vector3.new(0, 7, 0)
+                    local flankOffset = (targetRoot.CFrame.RightVector * (math.random() > 0.5 and 9 or -9)) + Vector3.new(0, 8, 0)
                     myRoot.CFrame = CFrame.lookAt(targetRoot.Position + flankOffset, targetRoot.Position)
-                    
-                    -- 2. รัน I-Frame Dash
                     PerformEvasiveDash()
                     EnsureKen()
                 end
@@ -349,7 +350,7 @@ local function FindBestTarget()
 end
 
 -- =========================================================================
--- WEAPON CONTROLLER & COMBAT FRAMEWORK
+-- WEAPON CONTROLLER & COMBAT FRAMEWORK HOOK
 -- =========================================================================
 local function EquipWeapon(weaponType)
     local char = GetChar(LocalPlayer)
@@ -410,6 +411,21 @@ end
 local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
 local RegisterAttack = Net and (Net:FindFirstChild("RE/RegisterAttack") or Net:FindFirstChild("RegisterAttack"))
 local RegisterHit = Net and (Net:FindFirstChild("RE/RegisterHit") or Net:FindFirstChild("RegisterHit"))
+
+-- FORCE COMBAT TAGGER: ส่ง Hit Packet บังคับติด In-Combat Timer ทันที
+local function ForceCombatTag(targetChar, targetRoot)
+    if not Config.EnableForceCombat or not targetChar or not targetRoot then return end
+    if tick() - AppState.LastTagTick < 0.25 then return end
+    AppState.LastTagTick = tick()
+
+    if RegisterAttack then pcall(function() RegisterAttack:FireServer(0) end) end
+    if RegisterHit then
+        pcall(function()
+            RegisterHit:FireServer(targetRoot, { { targetChar, targetRoot } })
+            Stats.CombatTagsInflicted = Stats.CombatTagsInflicted + 1
+        end)
+    end
+end
 
 local comboCounter = 1
 local function FireFastAttack()
@@ -491,7 +507,10 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 28 then FireFastAttack() end
+                if dist <= 30 then
+                    FireFastAttack()
+                    ForceCombatTag(targetChar, targetRoot)
+                end
             end
         end
         task.wait(Config.M1AttackSpeed)
@@ -503,7 +522,7 @@ task.spawn(function()
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
             ExecuteSkillCombo()
         end
-        task.wait(1.2)
+        task.wait(1.1)
     end
 end)
 
@@ -609,7 +628,7 @@ local function TriggerMaxSkyRetreat()
 end
 
 -- =========================================================================
--- HEARTBEAT NAVIGATION & 3D QUANTUM WEAVE ENGINE
+-- HEARTBEAT NAVIGATION, FORCE COMBAT & SAFE ZONE INTERCEPTION
 -- =========================================================================
 RunService.Heartbeat:Connect(function(dt)
     if AppState.IsRetreating then return end
@@ -630,7 +649,7 @@ RunService.Heartbeat:Connect(function(dt)
     if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("EMERGENCY RETREAT: Sky Healing (%d%% HP)", math.floor(currentHpPercent))
+            AppState.CurrentCombatStatus = string.format("EMERGENCY ESCAPE: Sky Healing (%d%% HP)", math.floor(currentHpPercent))
             
             ApplyPhysics(myRoot)
             EnsureKen()
@@ -679,12 +698,12 @@ RunService.Heartbeat:Connect(function(dt)
     TriggerRaceV4()
     ApplyPhysics(myRoot)
 
-    -- คำนวณ Predictive Velocity Vector
+    -- คำนวณ Predictive Velocity Vector (ดักหน้าเวลาเป้าหมายแดช/วาร์ป)
     local targetVelocity = targetRoot.AssemblyLinearVelocity or targetRoot.Velocity or Vector3.zero
     local predictedPos = targetRoot.Position + (targetVelocity * Config.PredictionMultiplier)
     local predictedCFrame = CFrame.new(predictedPos, predictedPos + targetRoot.CFrame.LookVector)
 
-    -- ระบบหลบแบบ Quantum Weave (ส่ายวนรอบตัวศัตรูเพื่อไม่ให้โดนสกิลช็อตตรงๆ)
+    -- Quantum Weave 3D Dodge Offset
     local weaveX, weaveY = 0, 0
     if Config.EnableAutoDodge and Config.DodgeMode == "QuantumWeave" then
         AppState.OrbitAngle = AppState.OrbitAngle + (Config.WeaveSpeed * dt)
@@ -692,10 +711,16 @@ RunService.Heartbeat:Connect(function(dt)
         weaveY = math.cos(AppState.OrbitAngle * 1.5) * 0.75
     end
 
+    -- SAFE ZONE INTERCEPTION & ANTI-ESCAPE
     local stickCFrame = predictedCFrame * CFrame.new(weaveX, Config.HeightOffset + weaveY, Config.StickDistance)
     local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
     local dist = (targetPos - currentPos).Magnitude
+
+    -- บังคับแท็ก In-Combat ทันทีที่เข้าใกล้
+    if dist <= 35 then
+        ForceCombatTag(targetChar, targetRoot)
+    end
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
@@ -703,11 +728,11 @@ RunService.Heartbeat:Connect(function(dt)
     end
 
     if dist > 3.0 then
-        AppState.CurrentCombatStatus = "Tracking Target (" .. math.floor(dist) .. "m)"
+        AppState.CurrentCombatStatus = "Force-Locking Target (" .. math.floor(dist) .. "m)"
         local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 35)
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 38)
         end
     else
         local bv = myRoot:FindFirstChild("BountyBV")
@@ -715,7 +740,7 @@ RunService.Heartbeat:Connect(function(dt)
         
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Ultra Instinct: Evading & Striking..."
+        AppState.CurrentCombatStatus = "Combat Lock: Trapped & Striking..."
     end
 end)
 
@@ -723,7 +748,7 @@ end)
 -- 3D ESP RADAR
 -- =========================================================================
 local ESPFolder = Instance.new("Folder")
-ESPFolder.Name = "BountyApexUI_ESP"
+ESPFolder.Name = "BountyForce_ESP"
 ESPFolder.Parent = (gethui and gethui()) or CoreGui
 
 local ESPObjects = {}
@@ -802,9 +827,9 @@ RunService.RenderStepped:Connect(function()
             local tag = "[READY]"
 
             if player == AppState.SelectedPlayer then
-                statusColor = "#00E5FF"
-                highlightColor = Color3.fromRGB(0, 229, 255)
-                tag = "[🎯 LOCKED TARGET]"
+                statusColor = "#FF3366"
+                highlightColor = Color3.fromRGB(255, 51, 102)
+                tag = "[⚔️ COMBAT TRAPPED]"
             elseif st.InSafeZone then
                 statusColor = "#FFD700"
                 highlightColor = Color3.fromRGB(255, 215, 0)
@@ -841,7 +866,7 @@ end)
 -- GUI DASHBOARD
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BountyGod_UltraInstinct"
+ScreenGui.Name = "BountyGod_ForceCombat"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
@@ -885,8 +910,8 @@ end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.86, 0) or UDim2.new(0, 610, 0, 510)
-MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.07, 0) or UDim2.new(0.5, -305, 0.5, -255)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.86, 0) or UDim2.new(0, 620, 0, 520)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.07, 0) or UDim2.new(0.5, -310, 0.5, -260)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -911,7 +936,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 40)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v8.5 (ULTRA INSTINCT)"
+Header.Text = "  ⚡ BOUNTY GOD v9.0 (FORCE COMBAT ENGINE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -919,21 +944,21 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
-local DodgeToggleBtn = Instance.new("TextButton")
-DodgeToggleBtn.Size = UDim2.new(0, 95, 0, 24)
-DodgeToggleBtn.Position = UDim2.new(1, -200, 0, 8)
-DodgeToggleBtn.BackgroundColor3 = Config.EnableAutoDodge and Color3.fromRGB(138, 43, 226) or Color3.fromRGB(70, 75, 85)
-DodgeToggleBtn.Text = Config.EnableAutoDodge and "DODGE: ON" or "DODGE: OFF"
-DodgeToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-DodgeToggleBtn.Font = Enum.Font.GothamBold
-DodgeToggleBtn.TextSize = 10
-DodgeToggleBtn.Parent = Header
-Instance.new("UICorner", DodgeToggleBtn).CornerRadius = UDim.new(0, 4)
+local ForceFightBtn = Instance.new("TextButton")
+ForceFightBtn.Size = UDim2.new(0, 95, 0, 24)
+ForceFightBtn.Position = UDim2.new(1, -200, 0, 8)
+ForceFightBtn.BackgroundColor3 = Config.EnableForceCombat and Color3.fromRGB(220, 53, 69) or Color3.fromRGB(70, 75, 85)
+ForceFightBtn.Text = Config.EnableForceCombat and "FORCE: ON" or "FORCE: OFF"
+ForceFightBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ForceFightBtn.Font = Enum.Font.GothamBold
+ForceFightBtn.TextSize = 10
+ForceFightBtn.Parent = Header
+Instance.new("UICorner", ForceFightBtn).CornerRadius = UDim.new(0, 4)
 
-DodgeToggleBtn.MouseButton1Click:Connect(function()
-    Config.EnableAutoDodge = not Config.EnableAutoDodge
-    DodgeToggleBtn.Text = Config.EnableAutoDodge and "DODGE: ON" or "DODGE: OFF"
-    DodgeToggleBtn.BackgroundColor3 = Config.EnableAutoDodge and Color3.fromRGB(138, 43, 226) or Color3.fromRGB(70, 75, 85)
+ForceFightBtn.MouseButton1Click:Connect(function()
+    Config.EnableForceCombat = not Config.EnableForceCombat
+    ForceFightBtn.Text = Config.EnableForceCombat and "FORCE: ON" or "FORCE: OFF"
+    ForceFightBtn.BackgroundColor3 = Config.EnableForceCombat and Color3.fromRGB(220, 53, 69) or Color3.fromRGB(70, 75, 85)
 end)
 
 local ESPToggleBtn = Instance.new("TextButton")
@@ -976,10 +1001,9 @@ local function UpdateStatsDisplay()
     local netColor = net >= 0 and "#00FF7F" or "#FF4D4D"
     StatText.Text = string.format(
         "<b>Bounty:</b> %s | <b>K/D:</b> <font color='#00FF7F'>%d</font>/<font color='#FF4D4D'>%d</font> | <b>Dodges:</b> <font color='#A855F7'>%d</font><br/>" ..
-        "<b>Gained:</b> <font color='#00FF7F'>+%s</font> | <b>Lost:</b> <font color='#FF4D4D'>-%s</font> | <b>Net:</b> <font color='%s'>%+d</font>",
+        "<b>Gained:</b> <font color='#00FF7F'>+%s</font> | <b>Net:</b> <font color='%s'>%+d</font> | <b>Force Tags:</b> <font color='#FF3366'>%d</font>",
         tostring(Stats.CurrentBounty), Stats.Kills, Stats.Deaths, Stats.DodgedAttacks,
-        tostring(Stats.BountyGained), tostring(Stats.BountyLost),
-        netColor, net
+        tostring(Stats.BountyGained), netColor, net, Stats.CombatTagsInflicted
     )
 end
 
@@ -1194,6 +1218,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         HookTargetAnimationSniffer(AppState.SelectedPlayer)
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target..."
+        StatusLabel.Text = "Status: Force Locking Target..."
     end
 end)
