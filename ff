@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.9 (NO-ROLLBACK SKY GLIDE)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v8.0 (UNDERGROUND BUNKER GOD)
 -- Features:
---  1. 3-Phase Anti-Rollback Sky Navigation (No Rubberband / No Anti-Cheat Kick)
---  2. Auto Post-Kill Sky Cruise & Soft Touchdown at Starter Safe Island
---  3. Quick Travel Buttons: [FLY STARTER] & [FLY CAFE/HUB] (100% Rollback-Free)
---  4. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หลบสกิล 360°)
---  5. Downward M1 Fast Attack & RegisterHit Network Packet Stream
+--  1. Instant Underground Safe Bunker (-65 Studs Dive on Kill / Low HP)
+--  2. Continuous NoClip & Physics Anchor (Zero Void Falling, 100% Safe)
+--  3. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หลบสกิล 360°)
+--  4. Downward M1 Fast Attack & Direct RegisterHit Packet Stream
+--  5. Quick Safety Hub: [🕳️ DIVE UNDERGROUND], [🕊️ FLY STARTER], [☕ FLY CAFE]
 --  6. Real-Time 3D Billboard ESP & Wallhack Radar
---  7. Auto Buffs (Buso Haki, Ken Haki, Race V3 Skill)
+--  7. Auto Buffs (Buso Haki, Ken Haki, Race V3)
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -50,9 +50,13 @@ end
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 320,               -- ความเร็วในการบินปกติและโจมตี
-    TravelFlySpeed = 360,         -- ความเร็วในการบินเดินทางข้ามเกาะ (Anti-Rollback)
-    TravelSkyAltitude = 850,      -- ระดับความสูงบนฟ้าขณะเดินทาง (หลบสิ่งกีดขวาง 100%)
+    FlySpeed = 320,               -- ความเร็วบินโจมตี
+    TravelFlySpeed = 360,         -- ความเร็วบินเดินทางข้ามเกาะ
+    TravelSkyAltitude = 850,      -- ความสูงเดินทาง
+    
+    -- UNDERGROUND BUNKER SETTINGS (ระบบมุดดินหลบภัย)
+    UndergroundDepth = 65,        -- ระยะมุดลงใต้ดิน (Studs) เพื่อไม่ให้ศัตรูเห็นและตีไม่ถึง
+    AutoDiveOnKill = true,        -- มุดดินหลบทันทีหลังฆ่าสำเร็จ
     
     -- OVERHEAD EVASION (เกาะเหนือหัว + หลบสกิล)
     OverheadHeight = 9.5,         -- ความสูงเหนือหัวศัตรู
@@ -70,7 +74,6 @@ local Config = {
     ESPTextSize = 11,
     
     -- SURVIVAL & RECOVERY
-    AutoFlyOnKill = true,         -- บินกลับเกาะแรกอัตโนมัติหลังฆ่าเสร็จ
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
@@ -92,7 +95,7 @@ local AppState = {
     SelectedPlayer = nil,
     IsHunting = false,
     IsSpectating = false,
-    IsHealingInSky = false,
+    IsUnderground = false,
     IsRetreating = false,
     CurrentCombatStatus = "Idle"
 }
@@ -526,7 +529,7 @@ end
 -- ลูปโจมตี M1 ต่อเนื่อง
 task.spawn(function()
     while true do
-        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
+        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsUnderground and not AppState.IsRetreating then
             local targetChar = GetChar(AppState.SelectedPlayer)
             local myChar = GetChar(LocalPlayer)
             local targetRoot = GetRoot(targetChar)
@@ -567,8 +570,9 @@ local function RemovePhysics(myRoot)
     if myRoot:FindFirstChild("BountyBG") then myRoot.BountyBG:Destroy() end
 end
 
+-- ระบบ NoClip ตลอดเวลาเมื่อ ล่า/มุดดิน/เดินทาง
 RunService.Stepped:Connect(function()
-    if AppState.IsHunting or AppState.IsHealingInSky or AppState.IsRetreating then
+    if AppState.IsHunting or AppState.IsUnderground or AppState.IsRetreating then
         local myChar = GetChar(LocalPlayer)
         if myChar then
             for _, part in ipairs(myChar:GetDescendants()) do
@@ -582,10 +586,58 @@ end)
 
 local function StopHunt(reason)
     AppState.IsHunting = false
-    AppState.IsHealingInSky = false
+    AppState.IsUnderground = false
+    AppState.IsRetreating = false
     AppState.CurrentCombatStatus = reason or "Idle"
     local myChar = GetChar(LocalPlayer)
     RemovePhysics(GetRoot(myChar))
+end
+
+-- =========================================================================
+-- UNDERGROUND BUNKER RETREAT ENGINE (มุดดินหลบภัย 100% ปลอดภัย ไร้บัค)
+-- =========================================================================
+local function TriggerUndergroundRetreat()
+    if AppState.IsUnderground then return end
+    AppState.IsHunting = false
+    AppState.IsRetreating = false
+    AppState.IsUnderground = true
+    AppState.SelectedPlayer = nil
+    AppState.CurrentCombatStatus = "KILL CONFIRMED! Diving Underground (-65 Studs Bunker)..."
+
+    task.spawn(function()
+        local myChar = GetChar(LocalPlayer)
+        local myRoot = GetRoot(myChar)
+        local myHum = GetHum(myChar)
+        if not myRoot or not myHum then return end
+
+        ApplyPhysics(myRoot)
+        EnsureKen()
+        EnsureBuso()
+
+        -- ดำดิ่งลงใต้ดินลึก 65 Studs ทันที
+        local safeUndergroundPos = Vector3.new(myRoot.Position.X, myRoot.Position.Y - Config.UndergroundDepth, myRoot.Position.Z)
+        
+        local startDive = tick()
+        while tick() - startDive < 1.0 do
+            myChar = GetChar(LocalPlayer)
+            myRoot = GetRoot(myChar)
+            if not myRoot then break end
+            
+            local diff = safeUndergroundPos - myRoot.Position
+            local bv = myRoot:FindFirstChild("BountyBV")
+            if bv then
+                bv.Velocity = diff.Unit * 120
+            end
+            task.wait(0.03)
+        end
+
+        -- ล็อคตำแหน่งค้างไว้ใต้ดิน (Bunker Mode) ปลอดภัย 100% ศัตรูตีไม่ถึง
+        local bv = myRoot and myRoot:FindFirstChild("BountyBV")
+        if bv then bv.Velocity = Vector3.zero end
+        if myRoot then myRoot.CFrame = CFrame.new(safeUndergroundPos) end
+
+        AppState.CurrentCombatStatus = "SAFE BUNKER: Underground Active (-65 Studs) | Regenerating HP..."
+    end)
 end
 
 -- =========================================================================
@@ -600,6 +652,7 @@ local function SmoothFlyTo(targetPos, destinationName, onComplete)
 
         AppState.IsRetreating = true
         AppState.IsHunting = false
+        AppState.IsUnderground = false
         AppState.CurrentCombatStatus = string.format("Ascending to High Sky (Anti-Rollback)...")
 
         local travelAltitude = Config.TravelSkyAltitude
@@ -689,24 +742,11 @@ local function SmoothFlyTo(targetPos, destinationName, onComplete)
     end)
 end
 
-local function TriggerPostKillGlide()
-    if AppState.IsRetreating then return end
-    AppState.IsHunting = false
-    AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = "KILL CONFIRMED! Smooth Sky Gliding to Starter Island..."
-
-    if Config.AutoFlyOnKill then
-        SmoothFlyTo(GetStarterIslandPos(), "Starter Island")
-    else
-        StopHunt("Target Eliminated")
-    end
-end
-
 -- =========================================================================
 -- MAIN COMBAT ENGINE LOOP (OVERHEAD HELIX ORBIT)
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
-    if AppState.IsRetreating then return end
+    if AppState.IsRetreating or AppState.IsUnderground then return end
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
 
     local myChar = GetChar(LocalPlayer)
@@ -720,35 +760,19 @@ RunService.Heartbeat:Connect(function()
 
     local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
 
-    -- Emergency Sky Heal
-    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
-        if currentHpPercent < Config.RecoveryHPThreshold then
-            AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("EMERGENCY ESCAPE: Max Sky Healing (%d%% HP)", math.floor(currentHpPercent))
-            
-            ApplyPhysics(myRoot)
-            EnsureKen()
-            EnsureBuso()
-            
-            local skyPos = Vector3.new(myRoot.Position.X, Config.TravelSkyAltitude, myRoot.Position.Z)
-            local diff = skyPos - myRoot.Position
-            local bv = myRoot:FindFirstChild("BountyBV")
-            if bv then
-                bv.Velocity = diff.Magnitude > 15 and diff.Unit * Config.FlySpeed or Vector3.zero
-            end
-            return
-        else
-            AppState.IsHealingInSky = false
-        end
+    -- Emergency Bunker Dive when low HP
+    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold) then
+        TriggerUndergroundRetreat()
+        return
     end
 
     local targetChar = GetChar(AppState.SelectedPlayer)
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย -> บินนุ่มไร้โรลแบ็คกลับเกาะแรก
+    -- ตรวจสอบการตายของเป้าหมาย -> มุดดินหลบภัยทันที
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
-        TriggerPostKillGlide()
+        TriggerUndergroundRetreat()
         return
     end
 
@@ -801,7 +825,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- =========================================================================
--- GUI DASHBOARD (WITH NO-ROLLBACK FLY BUTTONS)
+-- GUI DASHBOARD (WITH UNDERGROUND BUNKER & TRAVEL BUTTONS)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BountyGodUniversal"
@@ -874,7 +898,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.9 (NO-ROLLBACK SKY GLIDE)"
+Header.Text = "  ⚡ BOUNTY GOD v8.0 (UNDERGROUND BUNKER)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -882,18 +906,29 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
--- QUICK ACTION BUTTONS (FLY STARTER, FLY CAFE, ESP)
+-- QUICK ACTION BUTTONS (DIVE UNDERGROUND, FLY STARTER, FLY CAFE, ESP)
 local ActionToolbar = Instance.new("Frame")
 ActionToolbar.Size = UDim2.new(1, -16, 0, 30)
 ActionToolbar.Position = UDim2.new(0, 8, 0, 42)
 ActionToolbar.BackgroundTransparency = 1
 ActionToolbar.Parent = MainFrame
 
+local BunkerBtn = Instance.new("TextButton")
+BunkerBtn.Size = UDim2.new(0.24, -3, 1, 0)
+BunkerBtn.Position = UDim2.new(0, 0, 0, 0)
+BunkerBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
+BunkerBtn.Text = "🕳️ DIVE"
+BunkerBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+BunkerBtn.Font = Enum.Font.GothamBold
+BunkerBtn.TextSize = IsMobile and 10 or 11
+BunkerBtn.Parent = ActionToolbar
+Instance.new("UICorner", BunkerBtn).CornerRadius = UDim.new(0, 6)
+
 local TPStarterBtn = Instance.new("TextButton")
-TPStarterBtn.Size = UDim2.new(0.32, -4, 1, 0)
-TPStarterBtn.Position = UDim2.new(0, 0, 0, 0)
+TPStarterBtn.Size = UDim2.new(0.24, -3, 1, 0)
+TPStarterBtn.Position = UDim2.new(0.25, 0, 0, 0)
 TPStarterBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
-TPStarterBtn.Text = "🕊️ FLY STARTER"
+TPStarterBtn.Text = "🕊️ STARTER"
 TPStarterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 TPStarterBtn.Font = Enum.Font.GothamBold
 TPStarterBtn.TextSize = IsMobile and 10 or 11
@@ -901,10 +936,10 @@ TPStarterBtn.Parent = ActionToolbar
 Instance.new("UICorner", TPStarterBtn).CornerRadius = UDim.new(0, 6)
 
 local TPCafeBtn = Instance.new("TextButton")
-TPCafeBtn.Size = UDim2.new(0.32, -4, 1, 0)
-TPCafeBtn.Position = UDim2.new(0.34, 0, 0, 0)
+TPCafeBtn.Size = UDim2.new(0.24, -3, 1, 0)
+TPCafeBtn.Position = UDim2.new(0.50, 0, 0, 0)
 TPCafeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
-TPCafeBtn.Text = "☕ FLY CAFE/HUB"
+TPCafeBtn.Text = "☕ CAFE"
 TPCafeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 TPCafeBtn.Font = Enum.Font.GothamBold
 TPCafeBtn.TextSize = IsMobile and 10 or 11
@@ -912,10 +947,10 @@ TPCafeBtn.Parent = ActionToolbar
 Instance.new("UICorner", TPCafeBtn).CornerRadius = UDim.new(0, 6)
 
 local ESPToggleBtn = Instance.new("TextButton")
-ESPToggleBtn.Size = UDim2.new(0.32, -4, 1, 0)
-ESPToggleBtn.Position = UDim2.new(0.68, 0, 0, 0)
+ESPToggleBtn.Size = UDim2.new(0.24, -3, 1, 0)
+ESPToggleBtn.Position = UDim2.new(0.75, 0, 0, 0)
 ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
-ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP: ON" or "👁️ ESP: OFF"
+ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP ON" or "👁️ ESP OFF"
 ESPToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ESPToggleBtn.Font = Enum.Font.GothamBold
 ESPToggleBtn.TextSize = IsMobile and 10 or 11
@@ -924,8 +959,16 @@ Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 6)
 
 ESPToggleBtn.MouseButton1Click:Connect(function()
     Config.EnableESP = not Config.EnableESP
-    ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP: ON" or "👁️ ESP: OFF"
+    ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP ON" or "👁️ ESP OFF"
     ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
+end)
+
+BunkerBtn.MouseButton1Click:Connect(function()
+    if AppState.IsUnderground then
+        StopHunt("Exited Bunker (Idle)")
+    else
+        TriggerUndergroundRetreat()
+    end
 end)
 
 TPStarterBtn.MouseButton1Click:Connect(function()
@@ -976,8 +1019,8 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                -- ฆ่าได้สำเร็จ -> บินนุ่มไร้โรลแบ็คกลับเกาะแรกทันที
-                TriggerPostKillGlide()
+                -- ฆ่าได้สำเร็จ -> มุดดินหลบภัยทันที
+                TriggerUndergroundRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
                 Stats.Deaths = Stats.Deaths + 1
@@ -1139,7 +1182,7 @@ end
 
 task.spawn(function()
     while true do
-        if not AppState.IsHunting and not AppState.IsRetreating then
+        if not AppState.IsHunting and not AppState.IsRetreating and not AppState.IsUnderground then
             RenderRadarRows()
         else
             StatusLabel.Text = "Status: " .. AppState.CurrentCombatStatus
@@ -1149,7 +1192,7 @@ task.spawn(function()
 end)
 
 HuntBtn.MouseButton1Click:Connect(function()
-    if AppState.IsHunting or AppState.IsRetreating then
+    if AppState.IsHunting or AppState.IsRetreating or AppState.IsUnderground then
         StopHunt("Hunt Cancelled")
         HuntBtn.Text = "START HUNT (ENGAGE)"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
@@ -1170,6 +1213,7 @@ HuntBtn.MouseButton1Click:Connect(function()
 
         EquipWeapon(Config.PrimaryWeapon)
 
+        AppState.IsUnderground = false
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
