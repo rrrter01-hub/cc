@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.1 (INSTANT FREE MOVEMENT)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v9.2 (ZERO-GAP & SPACE ORBIT)
 -- Features:
---  1. Instant Post-Kill Free Movement (ฆ่าเสร็จคืนค่าการเคลื่อนไหว 100% เดิน/กระโดดได้ทันที ไม่มียืนนิ่ง)
---  2. Dedicated Auto M1 Rapid-Fire Engine (ตีธรรมดาออโต้ความเร็วสูง 0.025s)
---  3. Multi-Weapon Combo Protocol: หมัด (Melee) -> ดาบ (Sword) -> ผล (Fruit)
---  4. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
---  5. Dynamic Lock-On Aim (ล็อคเป้าและมุมกล้อง)
---  6. 3D Billboard ESP, Taunt Engine & Radar Dashboard
---  7. Auto Buffs (Buso Haki, Ken Haki, Race V3)
+--  1. Zero-Gap Relentless Pursuit (ประกบติดตัวศัตรู 1.2 Studs ทุกเฟรม ต่อให้แดช/โซรูก็ดูดติดทันที)
+--  2. Stratosphere Orbit Escape (เลือดต่ำกว่า 35% พุ่งขึ้นฟ้านอกโลก 2,200 Studs เซฟ 100%)
+--  3. Dedicated Auto M1 Rapid Engine (ตีธรรมดาออโต้ 0.025s ไม่หยุด)
+--  4. Multi-Weapon Combo Protocol: หมัด (Melee) -> ดาบ (Sword) -> ผล (Fruit)
+--  5. Instant Post-Kill Free Movement (ฆ่าเสร็จขยับเดินกระโดดได้ปกติทันที)
+--  6. Permanent Full-Body NoClip (เดินทะลุกำแพง ภูเขา สิ่งกีดขวาง 100%)
+--  7. 3D Billboard ESP & Taunt Engine Dashboard
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -28,18 +28,24 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 320,               -- ความเร็วบินติดตามเป้าหมาย
-    StickDistance = 1.6,          -- ระยะห่างด้านหลังศัตรู (Studs)
-    HeightOffset = 0.8,           -- ระดับความสูงจากพื้น
+    FlySpeed = 380,               -- ความเร็วพุ่งติดตามเป้าหมาย (เร็วสะใจ ไร้ช่องว่าง)
+    StickDistance = 1.2,          -- ระยะประกบหลังศัตรู (Studs)
+    HeightOffset = 0.6,           -- ระดับความสูงจากพื้น
     
     -- AUTO M1 ATTACK SETTINGS
     AutoM1 = true,                -- เปิดระบบตีธรรมดาอัตโนมัติ
-    M1AttackSpeed = 0.025,        -- จังหวะรัวตีธรรมดา M1 (รัวสุดๆ 0.025s)
-    HitboxSize = 80,              -- รัศมีฮิตบ็อกซ์โจมตี
+    M1AttackSpeed = 0.025,        -- จังหวะรัวตีธรรมดา M1 (0.025s)
+    HitboxSize = 85,              -- รัศมีฮิตบ็อกซ์โจมตี
     
     -- COMBO ROTATION SETTINGS (หมัด -> ดาบ -> ผล)
     EnableComboRotation = true,   -- เปิดใช้งานคอมโบสลับ 3 อาวุธ
-    WeaponSwitchDelay = 0.04,     -- ดีเลย์ตอนสลับอาวุธ
+    WeaponSwitchDelay = 0.03,     -- ดีเลย์ตอนสลับอาวุธ
+    
+    -- STRATOSPHERE EMERGENCY ESCAPE (ลอยขึ้นฟ้านอกโลก)
+    EmergencyEscape = true,
+    EmergencyHPThreshold = 35,    -- เลือดต่ำกว่า 35% พุ่งขึ้นฟ้าทันที
+    RecoveryHPThreshold = 90,     -- เลือดรีเจนถึง 90% ค่อยกลับมาสู้
+    StratosphereAltitude = 2200,  -- ความสูงนอกโลก (Studs) หลบทุกสกิล 100%
     
     -- TAUNT SETTINGS
     AutoTaunt = true,             -- พิมพ์ยั่วยุเปิดสถานะต่อสู้
@@ -48,14 +54,10 @@ local Config = {
     -- NOCLIP
     PermanentNoClip = true,       -- เดินทะลุกำแพงตลอดเวลา
     
-    -- SURVIVAL
+    -- AUTO BUFFS
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
-    EmergencyEscape = true,
-    EmergencyHPThreshold = 35,
-    RecoveryHPThreshold = 85,
-    EscapeSkyAltitude = 450,
     
     -- ESP
     EnableESP = true,
@@ -75,7 +77,7 @@ local AppState = {
     SelectedPlayer = nil,
     IsHunting = false,
     IsSpectating = false,
-    IsHealingInSky = false,
+    IsHealingInSpace = false,
     CurrentCombatStatus = "Idle"
 }
 
@@ -109,7 +111,7 @@ Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- INSTANT NORMAL MOVEMENT RESTORE (แก้บัคยืนนิ่ง คืนค่าการเดินปกติ 100%)
+-- INSTANT NORMAL MOVEMENT RESTORE (คืนค่าการเดินปกติ 100% หลังฆ่า)
 -- =========================================================================
 local function RestoreNormalMovement()
     local myChar = GetChar(LocalPlayer)
@@ -138,7 +140,7 @@ end
 
 local function StopHunt(reason)
     AppState.IsHunting = false
-    AppState.IsHealingInSky = false
+    AppState.IsHealingInSpace = false
     AppState.SelectedPlayer = nil
     AppState.CurrentCombatStatus = reason or "Idle (Movement 100% Free)"
     RestoreNormalMovement()
@@ -217,7 +219,7 @@ end
 -- PERMANENT NOCLIP ENGINE
 -- =========================================================================
 RunService.Stepped:Connect(function()
-    if Config.PermanentNoClip or AppState.IsHunting or AppState.IsHealingInSky then
+    if Config.PermanentNoClip or AppState.IsHunting or AppState.IsHealingInSpace then
         local myChar = GetChar(LocalPlayer)
         if myChar then
             for _, part in ipairs(myChar:GetDescendants()) do
@@ -494,7 +496,7 @@ local function TriggerRaceSkill()
 end
 
 -- =========================================================================
--- HIGH-SPEED AUTO M1 ATTACK ENGINE (ตีธรรมดาออโต้ต่อเนื่อง)
+-- HIGH-SPEED AUTO M1 ATTACK ENGINE
 -- =========================================================================
 local CombatFramework = nil
 local CombatController = nil
@@ -533,7 +535,6 @@ local function ExecuteAutoM1(targetChar, targetRoot)
 
     local tool = myChar:FindFirstChildOfClass("Tool")
 
-    -- 1. Hook Combat Controller
     local controller = ResolveCombatController()
     if controller then
         pcall(function()
@@ -552,7 +553,6 @@ local function ExecuteAutoM1(targetChar, targetRoot)
         end)
     end
 
-    -- 2. Send Packet Stream
     if RegisterAttack then
         pcall(function() RegisterAttack:FireServer(0) end)
     end
@@ -563,7 +563,6 @@ local function ExecuteAutoM1(targetChar, targetRoot)
         end)
     end
 
-    -- 3. Tool Activation & Mouse Click Emulation
     if tool then
         pcall(function() tool:Activate() end)
     end
@@ -575,10 +574,10 @@ local function ExecuteAutoM1(targetChar, targetRoot)
     end)
 end
 
--- ลูป Auto M1 ตีธรรมดาอัตโนมัติความเร็วสูง (0.025s)
+-- ลูป Auto M1 ตีธรรมดาต่อเนื่อง
 task.spawn(function()
     while true do
-        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and Config.AutoM1 then
+        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSpace and Config.AutoM1 then
             local targetChar = GetChar(AppState.SelectedPlayer)
             local myChar = GetChar(LocalPlayer)
             local targetRoot = GetRoot(targetChar)
@@ -586,7 +585,7 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 26 then
+                if dist <= 28 then
                     ExecuteAutoM1(targetChar, targetRoot)
                 end
             end
@@ -618,26 +617,26 @@ local FullComboSequence = {
 -- เธรดยัดสกิลคอมโบสลับ 3 อาวุธ
 task.spawn(function()
     while true do
-        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky then
+        if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSpace then
             local targetChar = GetChar(AppState.SelectedPlayer)
             local targetRoot = GetRoot(targetChar)
             local myRoot = GetRoot(GetChar(LocalPlayer))
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 26 and Config.EnableComboRotation then
+                if dist <= 28 and Config.EnableComboRotation then
                     for _, step in ipairs(FullComboSequence) do
-                        if not AppState.IsHunting then break end
+                        if not AppState.IsHunting or AppState.IsHealingInSpace then break end
 
                         targetChar = GetChar(AppState.SelectedPlayer)
                         targetRoot = GetRoot(targetChar)
                         if not targetChar or not targetRoot or targetChar.Parent == nil then break end
 
-                        -- 1. สลับอาวุธตาม Phase
+                        -- 1. สลับอาวุธ
                         EquipWeaponCategory(step.Category)
                         task.wait(Config.WeaponSwitchDelay)
 
-                        -- 2. ล็อคมุมกล้องจ้องเป้าหมาย
+                        -- 2. ล็อคมุมกล้อง
                         pcall(function()
                             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
                         end)
@@ -660,7 +659,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- PHYSICS & MOVEMENT CONTROLLER
+-- PHYSICS CONTROLLER
 -- =========================================================================
 local function ApplyPhysics(myRoot)
     if not myRoot then return end
@@ -673,12 +672,12 @@ local function ApplyPhysics(myRoot)
     local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
     bg.Name = "BountyBG"
     bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 15000
+    bg.P = 20000
     bg.Parent = myRoot
 end
 
 -- =========================================================================
--- MAIN DYNAMIC TRACKER LOOP
+-- ZERO-GAP PURSUIT & STRATOSPHERE ORBIT ENGINE (ลูปหลักเฟรมต่อเฟรม)
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
@@ -694,24 +693,28 @@ RunService.Heartbeat:Connect(function()
 
     local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
 
-    -- Emergency Sky Heal
-    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
+    -- =========================================================================
+    -- STRATOSPHERE ORBIT ESCAPE (เลือดต่ำกว่า 35% ลอยขึ้นฟ้านอกโลก 2,200 Studs)
+    -- =========================================================================
+    if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSpace) then
         if currentHpPercent < Config.RecoveryHPThreshold then
-            AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("HEALING: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
+            AppState.IsHealingInSpace = true
+            AppState.CurrentCombatStatus = string.format("🌌 SPACE ORBIT RECOVERY (%d%% HP) [Altitude: %dm]", math.floor(currentHpPercent), math.floor(myRoot.Position.Y))
             
             ApplyPhysics(myRoot)
             EnsureKen()
+            EnsureBuso()
             
-            local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
-            local diff = skyPos - myRoot.Position
+            local spacePos = Vector3.new(myRoot.Position.X, Config.StratosphereAltitude, myRoot.Position.Z)
+            local diff = spacePos - myRoot.Position
             local bv = myRoot:FindFirstChild("BountyBV")
             if bv then
-                bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
+                -- พุ่งขึ้นตรงสู่ชั้นอวกาศด้วยความเร็วสูง
+                bv.Velocity = diff.Magnitude > 15 and diff.Unit * 420 or Vector3.zero
             end
             return
         else
-            AppState.IsHealingInSky = false
+            AppState.IsHealingInSpace = false
         end
     end
 
@@ -719,7 +722,7 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย -> คืนค่าการเคลื่อนไหวปกติทันที 100% ไม่มียืนนิ่ง
+    -- ตรวจสอบการตายของเป้าหมาย -> คืนค่าการเดินปกติทันที 100% ไม่มียืนนิ่ง
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         StopHunt("Target Eliminated! Movement 100% Free")
         return
@@ -739,7 +742,10 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- คำนวณตำแหน่งเกาะติดหลังเป้าหมาย 1.6 Studs
+    -- =========================================================================
+    -- ZERO-GAP RELENTLESS PURSUIT (ล็อคประกบติดหลัง 1.2 Studs ไร้ช่องว่าง)
+    -- =========================================================================
+    local targetVel = targetRoot.AssemblyLinearVelocity
     local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
     local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
@@ -752,18 +758,20 @@ RunService.Heartbeat:Connect(function()
     end
 
     local bv = myRoot:FindFirstChild("BountyBV")
-    if dist > 2.0 then
-        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
+    if dist > 1.8 then
+        -- ศัตรูพุ่ง/แดช/โซรูหนี -> พุ่งติดตามดูดติดทันทีด้วยความเร็วสูงสุด
+        AppState.CurrentCombatStatus = "⚡ Zero-Gap Pursuing Target (" .. math.floor(dist) .. "m)"
         if bv then
-            bv.Velocity = diff.Unit * math.min(Config.FlySpeed, dist * 32)
+            bv.Velocity = diff.Unit * math.min(Config.FlySpeed, dist * 40)
         end
     else
+        -- ประชิดแนบเนื้อ -> ซิงค์ความเร็วและล็อคมุมมอง
         if bv then 
-            bv.Velocity = targetRoot.AssemblyLinearVelocity 
+            bv.Velocity = targetVel 
         end
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Bursting: Auto M1 + Multi-Weapon Combo"
+        AppState.CurrentCombatStatus = "💥 Clamped & Bursting: Auto M1 + 3-Weapon Combo"
         
         SendTauntMessage(AppState.SelectedPlayer)
     end
@@ -843,7 +851,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v9.1 (AUTO M1 & FREE MOVEMENT)"
+Header.Text = "  ⚡ BOUNTY GOD v9.2 (ZERO-GAP & SPACE ESCAPE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -943,8 +951,7 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                -- ฆ่าได้สำเร็จ -> คืนค่าการเดินปกติทันที
-                StopHunt("Target Killed! Movement 100% Free")
+                StopHunt("Target Eliminated! Movement 100% Free")
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
                 Stats.Deaths = Stats.Deaths + 1
@@ -1140,6 +1147,6 @@ HuntBtn.MouseButton1Click:Connect(function()
         AppState.IsHunting = true
         HuntBtn.Text = "STOP HUNTING"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Engaging Target (Auto M1 + Combo)..."
+        StatusLabel.Text = "Status: Engaging Target (Zero-Gap Lock)..."
     end
 end)
