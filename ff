@@ -1,11 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.2 (TIGHT COMBAT FIX)
--- Improvements:
---  1. Fixed Weapon Swap Glitch (ล็อคอาวุธหลัก ไม่สลับมั่วจนยกเลิกการตี)
---  2. Back-Lock Combat Position (ล็อคตำแหน่งด้านหลังศัตรู 2.5 studs ให้ Hitbox เข้า 100%)
---  3. Multi-Engine Attack Hook (Tool:Activate + VirtualUser + CombatFramework)
---  4. Smooth Anti-Rubberband Flight (ไม่โดนเซิร์ฟเวอร์ดีด)
---  5. Instant Post-Kill Safe Sky Retreat (ฆ่าเสร็จบินขึ้นฟ้าหลบทันที)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.3 (M1 COMBO FULL FIX)
+-- Features:
+--  1. Real M1 Combo Chain (ฟันครบชุด 1-2-3-4 ไม่ติดบัคดาเมจหาย)
+--  2. CombatFramework Deep Hook (ขยาย hitboxMagnitude + รีเซ็ต Attack Cooldown)
+--  3. Overlapped Stick Position (เกาะติดหลังเป้าหมาย 1.2 Studs)
+--  4. Auto Buffs + Strict SafeZone Detection
+--  5. Post-Combat Safe Sky Retreat (ฆ่าเสร็จบินขึ้นฟ้าหลบทันที)
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -25,11 +25,11 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 240,
-    CombatDistance = 2.5,        -- ระยะเกาะหลังศัตรู (Studs) การันตีตีโดนแน่นอน
-    CombatHeightOffset = 1.0,    -- ระดับความสูงจากพื้นหลังศัตรู
-    AttackSpeed = 0.04,          -- จังหวะ Burst Attack
-    PrimaryWeapon = "Melee",     -- อาวุธหลักสำหรับตีปกติ ("Melee" หรือ "Sword")
+    FlySpeed = 260,
+    StickDistance = 1.2,         -- ระยะแนบชิดด้านหลังศัตรู (การันตี M1 เข้า 100%)
+    HeightOffset = 0.5,          -- ระดับความสูง
+    M1AttackSpeed = 0.08,        -- จังหวะฟัน M1 Combo (วินาที)
+    PrimaryWeapon = "Melee",     -- อาวุธหลักสำหรับฟัน M1 ("Melee" หรือ "Sword")
     
     -- SURVIVAL & RETREAT
     AutoBuso = true,
@@ -39,18 +39,7 @@ local Config = {
     EmergencyHPThreshold = 35,
     RecoveryHPThreshold = 85,
     EscapeSkyAltitude = 450,
-    PostKillRetreatDuration = 3.5,
-
-    -- SKILLS
-    EnableSkills = true,
-    SkillDelay = 0.15,
-    Skills = {
-        { Type = "Melee", Key = Enum.KeyCode.Z, Hold = 0.05 },
-        { Type = "Melee", Key = Enum.KeyCode.X, Hold = 0.08 },
-        { Type = "Melee", Key = Enum.KeyCode.C, Hold = 0.08 },
-        { Type = "Sword", Key = Enum.KeyCode.Z, Hold = 0.05 },
-        { Type = "Sword", Key = Enum.KeyCode.X, Hold = 0.08 }
-    }
+    PostKillRetreatDuration = 3.5
 }
 
 local Stats = {
@@ -68,7 +57,6 @@ local AppState = {
     IsSpectating = false,
     IsHealingInSky = false,
     IsRetreating = false,
-    IsCastingSkill = false,
     CurrentCombatStatus = "Idle"
 }
 
@@ -232,7 +220,7 @@ local function TriggerRaceSkill()
 end
 
 -- =========================================================================
--- WEAPON CONTROLLER (STABLE)
+-- WEAPON CONTROLLER
 -- =========================================================================
 local function EquipWeapon(weaponType)
     local char = GetChar(LocalPlayer)
@@ -268,62 +256,79 @@ local function EquipWeapon(weaponType)
 end
 
 -- =========================================================================
--- MULTI-ENGINE FAST ATTACK
+-- ADVANCED COMBAT FRAMEWORK HOOK & M1 COMBO ENGINE
 -- =========================================================================
-local CombatFramework = nil
+local CombatFrameworkModule = nil
 pcall(function()
-    CombatFramework = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
+    CombatFrameworkModule = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
 end)
 
-local function GetActiveRig()
-    if CombatFramework and typeof(CombatFramework) == "table" then
-        return CombatFramework.activeController
+local function GetActiveController()
+    if CombatFrameworkModule and typeof(CombatFrameworkModule) == "table" then
+        return CombatFrameworkModule.activeController
     end
     return nil
 end
 
-local function DirectAttack()
+local function ExecuteM1Combo()
     local char = GetChar(LocalPlayer)
-    if not char then return end
+    local hum = GetHum(char)
+    if not char or not hum or hum.Health <= 0 then return end
+
+    -- แก้ไขสถานะการขยับ
+    hum.Sit = false
+    hum.PlatformStand = false
 
     local tool = char:FindFirstChildOfClass("Tool")
-    if not tool then
+    if not tool or (Config.PrimaryWeapon and not tool.Name:find(Config.PrimaryWeapon) and tool.ToolTip ~= Config.PrimaryWeapon) then
         tool = EquipWeapon(Config.PrimaryWeapon)
     end
 
-    -- 1. Direct Tool Activation
+    -- 1. Hook Active Combat Controller
+    local controller = GetActiveController()
+    if controller then
+        pcall(function()
+            controller.hitboxMagnitude = 60 -- ขยายรัศมีฮิตบ็อกซ์ให้โจมตีโดนแน่นอน
+            controller.timeToNextAttack = 0
+            controller.hitAttempts = 0
+            controller.attacking = false
+            controller.blocking = false
+            
+            -- หมุน Increment คอมโบชุด 1 -> 2 -> 3 -> 4
+            if controller.increment then
+                controller.increment = (controller.increment % 4) + 1
+            else
+                controller.increment = 1
+            end
+
+            if controller.attack then
+                controller:attack()
+            end
+        end)
+    end
+
+    -- 2. Tool Activate
     if tool then
         pcall(function() tool:Activate() end)
     end
 
-    -- 2. CombatFramework Controller Attack
-    local rig = GetActiveRig()
-    if rig then
-        pcall(function()
-            rig.timeToNextAttack = 0
-            rig.hitAttempts = 0
-            rig.increment = 3
-            rig.attacking = false
-            rig.blocking = false
-            if rig.attack then rig:attack() end
-        end)
-    end
-
-    -- 3. Virtual Input Simulation
+    -- 3. Virtual User Input Simulation
     pcall(function()
         VirtualUser:CaptureController()
-        VirtualUser:Button1Down(Vector2.new(100, 100))
+        VirtualUser:Button1Down(Vector2.new(50, 50))
         task.wait(0.01)
-        VirtualUser:Button1Up(Vector2.new(100, 100))
+        VirtualUser:Button1Up(Vector2.new(50, 50))
     end)
 
-    -- 4. Net Remotes Register
+    -- 4. Net Register Attack
     local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
     local regAttack = net and (net:FindFirstChild("RE/RegisterAttack") or net:FindFirstChild("RegisterAttack"))
-    if regAttack then pcall(function() regAttack:FireServer(0) end) end
+    if regAttack then
+        pcall(function() regAttack:FireServer(0) end)
+    end
 end
 
--- Attack Loop
+-- ลูปคอมแบท M1 อัตโนมัติ
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
@@ -334,61 +339,17 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 12 then
-                    DirectAttack()
+                if dist <= 15 then
+                    ExecuteM1Combo()
                 end
             end
         end
-        task.wait(Config.AttackSpeed)
+        task.wait(Config.M1AttackSpeed)
     end
 end)
 
 -- =========================================================================
--- SKILL ROTATION ENGINE (NON-BLOCKING)
--- =========================================================================
-local function CastSkill(key, holdTime)
-    VirtualInputManager:SendKeyEvent(true, key, false, game)
-    if holdTime and holdTime > 0 then task.wait(holdTime) end
-    VirtualInputManager:SendKeyEvent(false, key, false, game)
-end
-
-task.spawn(function()
-    while true do
-        if Config.EnableSkills and AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
-            local targetChar = GetChar(AppState.SelectedPlayer)
-            local targetHum = GetHum(targetChar)
-            local targetRoot = GetRoot(targetChar)
-            local myChar = GetChar(LocalPlayer)
-            local myRoot = GetRoot(myChar)
-
-            if targetHum and targetHum.Health > 0 and targetRoot and myRoot then
-                local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 10 then
-                    for _, skill in ipairs(Config.Skills) do
-                        if not AppState.IsHunting or AppState.IsRetreating then break end
-                        if targetHum.Health <= 0 then break end
-
-                        AppState.IsCastingSkill = true
-                        EquipWeapon(skill.Type)
-                        task.wait(0.05)
-
-                        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-                        AppState.CurrentCombatStatus = "Cast: " .. skill.Type .. " [" .. skill.Key.Name .. "]"
-                        CastSkill(skill.Key, skill.Hold)
-                        task.wait(Config.SkillDelay)
-                    end
-                    -- สลับกลับมาเป็นอาวุธหลักเพื่อฟันต่อเนื่อง
-                    EquipWeapon(Config.PrimaryWeapon)
-                    AppState.IsCastingSkill = false
-                end
-            end
-        end
-        task.wait(1.5)
-    end
-end)
-
--- =========================================================================
--- PHYSICS & MOVEMENT
+-- PHYSICS & MOVEMENT CONTROLLER
 -- =========================================================================
 local function ApplyPhysics(myRoot)
     if not myRoot then return end
@@ -401,7 +362,7 @@ local function ApplyPhysics(myRoot)
     local bg = myRoot:FindFirstChild("BountyBG") or Instance.new("BodyGyro")
     bg.Name = "BountyBG"
     bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-    bg.P = 12000
+    bg.P = 15000
     bg.Parent = myRoot
 end
 
@@ -427,20 +388,19 @@ end)
 local function StopHunt(reason)
     AppState.IsHunting = false
     AppState.IsHealingInSky = false
-    AppState.IsCastingSkill = false
     AppState.CurrentCombatStatus = reason or "Idle"
     local myChar = GetChar(LocalPlayer)
     RemovePhysics(GetRoot(myChar))
 end
 
 -- =========================================================================
--- POST-KILL RETREAT
+-- POST-KILL RETREAT CONTROLLER
 -- =========================================================================
 local function TriggerSafeRetreat()
     if AppState.IsRetreating then return end
     AppState.IsHunting = false
     AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = "Target Dead! Retreating to Sky..."
+    AppState.CurrentCombatStatus = "Target Eliminated! Retreating to Safe Sky..."
 
     task.spawn(function()
         local start = tick()
@@ -513,7 +473,7 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบว่าศัตรูตายแล้วหรือไม่
+    -- ตรวจสอบการตายของเป้าหมาย
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         TriggerSafeRetreat()
         return
@@ -533,9 +493,9 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- Back-Lock Position: ล็อคตำแหน่งหลังศัตรู 2.5 studs เพื่อให้ดาเมจเข้า 100%
-    local targetBackCFrame = targetRoot.CFrame * CFrame.new(0, Config.CombatHeightOffset, Config.CombatDistance)
-    local targetPos = targetBackCFrame.Position
+    -- เกาะติดหลังศัตรูในระยะ 1.2 Studs (Overlapped Stick Position)
+    local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
+    local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
     local dist = (targetPos - currentPos).Magnitude
 
@@ -544,24 +504,21 @@ RunService.Heartbeat:Connect(function()
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
-    if dist > 6 then
-        AppState.CurrentCombatStatus = "Flying to target (" .. math.floor(dist) .. "m)"
+    if dist > 4 then
+        AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
         local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 20)
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 25)
         end
     else
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
-        -- ล็อคหน้าและตำแหน่งเข้าหาศัตรูโดยตรง
+        -- ล็อคมุมมองและตำแหน่งแนบตัวศัตรู
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-
-        if not AppState.IsCastingSkill then
-            AppState.CurrentCombatStatus = "Combat: Locked & Slashing (Back-Lock)"
-        end
+        AppState.CurrentCombatStatus = "Executing M1 Combo Chain..."
     end
 end)
 
@@ -639,7 +596,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.2 (BACK-LOCK COMBAT)"
+Header.Text = "  ⚡ BOUNTY GOD v7.3 (M1 COMBO ENGINE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
