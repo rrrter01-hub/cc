@@ -1,13 +1,13 @@
 -- =========================================================================
--- BLOX FRUITS AUTONOMOUS BOUNTY ENGINE v11.0 (TITAN PRODUCTION BUILD)
--- Core Architecture (Zero-Bug & Anti-Rubberband):
---  1. Unified Kinetic Flight Engine (Single BodyVelocity/Gyro pipeline - NO CFrame conflicts)
---  2. Non-Blocking Fast Attack & Skill Weaving (M1 packet burst + sequenced Z/X/C)
---  3. Frame-Perfect Blindspot Anchor (1.1 studs behind target, zero physics fighting)
---  4. Debounced Dual-Haki Watchdog (Buso + Ken with remote safety protection)
---  5. 5-Stage State Machine: [IDLE] -> [TRAVEL] -> [COMBAT] -> [SKY_HEAL] -> [SKY_RETREAT]
---  6. Smooth Sky Orbit (1,600 Studs altitude on kill or emergency recovery)
---  7. Universal 3D ESP & Clean Responsive GUI Dashboard
+-- BLOX FRUITS AUTONOMOUS BOUNTY ENGINE v11.5 (PURE FLIGHT EDITION)
+-- Features:
+--  1. 100% Pure Kinetic Vector Flight (Zero Warping / Zero CFrame Snapping)
+--  2. Multi-Part NoClip (Glides effortlessly through islands, mountains & buildings)
+--  3. Frame-Perfect Blindspot Anchor (1.1 studs behind target spine)
+--  4. Non-Blocking Fast Attack M1 Shred + Multi-Weapon Skill Weaving (Z, X, C, V)
+--  5. Dual Haki Watchdog (Continuous Buso & Ken Observation Haki)
+--  6. Post-Kill Max Sky Ascent (1,600 Studs altitude safe orbit)
+--  7. Real-Time 3D ESP Radar & Clean Universal UI
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -29,31 +29,31 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    -- HUNTING & TARGETING
-    AutoTarget = true,
-    TargetPriority = "LowestHP",       -- "LowestHP", "Closest", "HighestBounty"
-    AutoServerHop = false,             -- ย้ายเซิร์ฟเวอร์อัตโนมัติเมื่อล่าหมดเซิร์ฟ
+    -- PURE FLIGHT SETTINGS
+    FlySpeed = 360,                    -- ความเร็วในการบินตรงหาเป้าหมาย
+    StickDistance = 1.1,               -- ระยะเกาะหลังเป้าหมาย (Studs)
+    HeightOffset = 0.5,                -- ระดับความสูงจากเอวเป้าหมาย
     
-    -- FLIGHT & KINETICS
-    FlySpeed = 360,                    -- ความเร็วการบินเคลื่อนที่
-    StickDistance = 1.1,               -- ระยะเกาะหลังศัตรู (Studs)
-    HeightOffset = 0.5,                -- ระดับความสูงจากเอวศัตรู
+    -- HUNTING & TARGETING
+    AutoTarget = true,                 -- เปลี่ยนเป้าหมายใหม่อัตโนมัติเมื่อฆ่าสำเร็จ
+    TargetPriority = "LowestHP",       -- "LowestHP", "Closest", "HighestBounty"
+    AutoServerHop = false,             -- ย้ายเซิร์ฟเมื่อไม่มีคนให้ล่า
     
     -- COMBAT & FAST ATTACK
-    M1AttackSpeed = 0.03,              -- ความเร็วการสแปม M1 (วินาที)
-    HitboxSize = 90,                   -- ขนาดฮิตบ็อกซ์โจมตี
-    EnableSkills = true,               -- ใช้งานสกิล Z, X, C อัตโนมัติ
-    SkillCooldown = 0.25,              -- ระยะห่างการกดแต่ละสกิล
+    M1AttackSpeed = 0.03,              -- สปีด M1 รัว
+    HitboxSize = 90,                   -- รัศมีฮิตบ็อกซ์โจมตี
+    EnableSkills = true,               -- กดสกิล Z, X, C, V อัตโนมัติ
+    SkillCooldown = 0.25,              -- ระยะห่างระหว่างสกิล
     WeaponOrder = { "Melee", "Sword", "Blox Fruit", "Gun" },
     
-    -- HAKI & RACE
-    AutoBuso = true,                   -- เปิดฮาคิเกราะอัตโนมัติ
-    AutoKen = true,                    -- เปิดฮาคิสังเกตอัตโนมัติ
-    AutoRaceV3 = true,                 -- เปิดสกิลเผ่า V3 อัตโนมัติ
-    AutoRaceV4 = true,                 -- เปิดแปลงร่าง V4 อัตโนมัติ
+    -- HAKI & RACE BUFFS
+    AutoBuso = true,                   -- ฮาคิเกราะตลอดเวลา
+    AutoKen = true,                    -- ฮาคิสังเกตตลอดเวลา
+    AutoRaceV3 = true,                 -- สกิลเผ่า V3
+    AutoRaceV4 = true,                 -- แปลงร่าง V4
     
     -- SURVIVAL & RECOVERY
-    MaxSkyAltitude = 1600,             -- บินขึ้นฟ้า 1,600 Studs (พ้นระยะสกิล 100%)
+    MaxSkyAltitude = 1600,             -- บินขึ้นฟ้า 1,600 Studs พ้นระยะสกิล 100%
     PostKillDuration = 4.0,            -- ระยะเวลาลอยฟ้าหลังฆ่าสำเร็จ (วินาที)
     EmergencyHPThreshold = 35,         -- % เลือดฉุกเฉินที่ต้องบินขึ้นฟ้า
     RecoveryHPThreshold = 90,          -- % เลือดที่ฟื้นฟูเสร็จพร้อมสู้ต่อ
@@ -73,7 +73,7 @@ local Stats = {
 }
 
 local AppState = {
-    CurrentState = "IDLE",            -- "IDLE", "TRAVEL", "COMBAT", "SKY_HEAL", "SKY_RETREAT"
+    CurrentState = "IDLE",            -- "IDLE", "FLYING", "COMBAT", "SKY_HEAL", "SKY_RETREAT"
     SelectedPlayer = nil,
     IsSpectating = false,
     StatusMessage = "Engine Standby"
@@ -393,18 +393,18 @@ local function FireFastAttack(targetChar, targetRoot)
 end
 
 -- =========================================================================
--- UNIFIED KINETIC FLIGHT & PHYSICS ENGINE (ZERO-RUBBERBAND)
+-- PURE FLIGHT PHYSICS ENGINE (NO TELEPORTS / NO CFRAME OVERWRITES)
 -- =========================================================================
 local function ApplyPhysics(myRoot)
     if not myRoot then return nil, nil end
-    local bv = myRoot:FindFirstChild("TitanBV") or Instance.new("BodyVelocity")
-    bv.Name = "TitanBV"
+    local bv = myRoot:FindFirstChild("PureFlyBV") or Instance.new("BodyVelocity")
+    bv.Name = "PureFlyBV"
     bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
     bv.Velocity = Vector3.zero
     bv.Parent = myRoot
 
-    local bg = myRoot:FindFirstChild("TitanBG") or Instance.new("BodyGyro")
-    bg.Name = "TitanBG"
+    local bg = myRoot:FindFirstChild("PureFlyBG") or Instance.new("BodyGyro")
+    bg.Name = "PureFlyBG"
     bg.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
     bg.P = 25000
     bg.D = 500
@@ -415,10 +415,11 @@ end
 
 local function RemovePhysics(myRoot)
     if not myRoot then return end
-    if myRoot:FindFirstChild("TitanBV") then myRoot.TitanBV:Destroy() end
-    if myRoot:FindFirstChild("TitanBG") then myRoot.TitanBG:Destroy() end
+    if myRoot:FindFirstChild("PureFlyBV") then myRoot.PureFlyBV:Destroy() end
+    if myRoot:FindFirstChild("PureFlyBG") then myRoot.PureFlyBG:Destroy() end
 end
 
+-- Multi-Part NoClip to prevent getting stuck in walls/islands during flight
 RunService.Stepped:Connect(function()
     if AppState.CurrentState ~= "IDLE" then
         local myChar = GetChar(LocalPlayer)
@@ -446,7 +447,7 @@ end
 local function TriggerSkyRetreat()
     if AppState.CurrentState == "SKY_RETREAT" then return end
     AppState.CurrentState = "SKY_RETREAT"
-    AppState.StatusMessage = string.format("Kill Confirmed! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
+    AppState.StatusMessage = string.format("Kill Confirmed! Ascending to Sky Orbit (%dm)...", Config.MaxSkyAltitude)
 
     task.spawn(function()
         local start = tick()
@@ -474,14 +475,14 @@ local function TriggerSkyRetreat()
 
         local myChar = GetChar(LocalPlayer)
         local myRoot = GetRoot(myChar)
-        local bv = myRoot and myRoot:FindFirstChild("TitanBV")
+        local bv = myRoot and myRoot:FindFirstChild("PureFlyBV")
         if bv then bv.Velocity = Vector3.zero end
 
         if Config.AutoTarget then
             local nextTarget = FindBestTarget()
             if nextTarget then
                 AppState.SelectedPlayer = nextTarget
-                AppState.CurrentState = "TRAVEL"
+                AppState.CurrentState = "FLYING"
             else
                 StopHunt("All Targets Cleared")
             end
@@ -492,9 +493,9 @@ local function TriggerSkyRetreat()
 end
 
 -- =========================================================================
--- INDEPENDENT COMBAT LOOPS (M1 & SKILL WEAVING)
+-- INDEPENDENT COMBAT LOOPS (M1 & SKILLS)
 -- =========================================================================
--- 1. M1 Fast Attack Loop (Always running when in COMBAT state)
+-- 1. Fast Attack Loop (Runs during COMBAT)
 task.spawn(function()
     while true do
         if AppState.CurrentState == "COMBAT" and AppState.SelectedPlayer then
@@ -547,7 +548,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- MASTER HEARTBEAT STATE CONTROLLER & KINETIC NAVIGATOR
+-- MASTER HEARTBEAT FLIGHT & STATE CONTROLLER (PURE VECTOR GLIDE)
 -- =========================================================================
 RunService.Heartbeat:Connect(function(dt)
     if AppState.CurrentState == "IDLE" or AppState.CurrentState == "SKY_RETREAT" then return end
@@ -563,11 +564,11 @@ RunService.Heartbeat:Connect(function(dt)
 
     local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
 
-    -- 1. Emergency Sky Healing Check
+    -- 1. Emergency Sky Healing
     if currentHpPercent <= Config.EmergencyHPThreshold or AppState.CurrentState == "SKY_HEAL" then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.CurrentState = "SKY_HEAL"
-            AppState.StatusMessage = string.format("EMERGENCY RETREAT: Sky Healing (%d%% HP)", math.floor(currentHpPercent))
+            AppState.StatusMessage = string.format("EMERGENCY ESCAPE: Sky Healing (%d%% HP)", math.floor(currentHpPercent))
             
             local bv, bg = ApplyPhysics(myRoot)
             EnsureKen()
@@ -583,11 +584,11 @@ RunService.Heartbeat:Connect(function(dt)
             end
             return
         else
-            AppState.CurrentState = "TRAVEL"
+            AppState.CurrentState = "FLYING"
         end
     end
 
-    -- 2. Validate Target
+    -- 2. Validate Target Status
     local target = AppState.SelectedPlayer
     local targetChar = GetChar(target)
     local targetHum = GetHum(targetChar)
@@ -604,7 +605,7 @@ RunService.Heartbeat:Connect(function(dt)
             local nextTarget = FindBestTarget()
             if nextTarget then
                 AppState.SelectedPlayer = nextTarget
-                AppState.CurrentState = "TRAVEL"
+                AppState.CurrentState = "FLYING"
                 return
             end
         end
@@ -620,7 +621,7 @@ RunService.Heartbeat:Connect(function(dt)
     TriggerRaceV3()
     TriggerRaceV4()
 
-    -- 4. Calculate Precision Blindspot Anchor (1.1 studs behind target spine)
+    -- 4. Calculate Precision Blindspot Anchor
     local targetLook = targetRoot.CFrame.LookVector
     local blindspotPos = targetRoot.Position - (targetLook * Config.StickDistance) + Vector3.new(0, Config.HeightOffset, 0)
     
@@ -629,10 +630,10 @@ RunService.Heartbeat:Connect(function(dt)
 
     local bv, bg = ApplyPhysics(myRoot)
 
-    -- 5. State Handling: TRAVEL vs COMBAT
+    -- 5. Pure Kinetic Flight Navigation
     if distToBlindspot > 3.0 then
-        AppState.CurrentState = "TRAVEL"
-        AppState.StatusMessage = string.format("Intercepting target (%dm)...", math.floor(distToBlindspot))
+        AppState.CurrentState = "FLYING"
+        AppState.StatusMessage = string.format("Flying to target (%dm)...", math.floor(distToBlindspot))
         
         local dir = (blindspotPos - currentPos).Unit
         if bv then
@@ -643,7 +644,7 @@ RunService.Heartbeat:Connect(function(dt)
         end
     else
         AppState.CurrentState = "COMBAT"
-        AppState.StatusMessage = "Titan Lock: Blindspot Stun & Shredding"
+        AppState.StatusMessage = "Blindspot Glued: Shredding Target"
         
         if bv then
             -- Match target velocity to eliminate rubberband drifting
@@ -661,7 +662,7 @@ end)
 -- 3D ESP RADAR
 -- =========================================================================
 local ESPFolder = Instance.new("Folder")
-ESPFolder.Name = "Titan_ESP"
+ESPFolder.Name = "PureFlight_ESP"
 ESPFolder.Parent = (gethui and gethui()) or CoreGui
 
 local ESPObjects = {}
@@ -742,7 +743,7 @@ RunService.RenderStepped:Connect(function()
             if player == AppState.SelectedPlayer then
                 statusColor = "#FF0033"
                 highlightColor = Color3.fromRGB(255, 0, 51)
-                tag = "[🎯 TITAN LOCKED]"
+                tag = "[🎯 FLIGHT LOCKED]"
             elseif st.InSafeZone then
                 statusColor = "#FFD700"
                 highlightColor = Color3.fromRGB(255, 215, 0)
@@ -779,7 +780,7 @@ end)
 -- UNIVERSAL GUI DASHBOARD
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TitanBountyMaster"
+ScreenGui.Name = "PureFlightBountyGod"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or CoreGui
 
@@ -849,7 +850,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 40)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v11.0 (TITAN PRODUCTION)"
+Header.Text = "  ⚡ BOUNTY GOD v11.5 (PURE FLIGHT EDITION)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -976,7 +977,7 @@ local HuntBtn = Instance.new("TextButton")
 HuntBtn.Size = UDim2.new(0.42, 0, 0.85, 0)
 HuntBtn.Position = UDim2.new(0.58, 0, 0.07, 0)
 HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
-HuntBtn.Text = "START ENGAGE"
+HuntBtn.Text = "START FLIGHT HUNT"
 HuntBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 HuntBtn.Font = Enum.Font.GothamBold
 HuntBtn.TextSize = IsMobile and 10 or 11
@@ -1083,7 +1084,7 @@ local function RenderRadarRows()
                 end
 
                 AppState.SelectedPlayer = player
-                AppState.CurrentState = "TRAVEL"
+                AppState.CurrentState = "FLYING"
                 StatusLabel.Text = string.format("Target: %s (Lv.%d)", player.DisplayName, st.Level)
                 RenderRadarRows()
             end)
@@ -1107,7 +1108,7 @@ end)
 HuntBtn.MouseButton1Click:Connect(function()
     if AppState.CurrentState ~= "IDLE" then
         StopHunt("Hunt Cancelled")
-        HuntBtn.Text = "START ENGAGE"
+        HuntBtn.Text = "START FLIGHT HUNT"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(40, 167, 69)
         StatusLabel.Text = "Status: Standby"
     else
@@ -1128,9 +1129,9 @@ HuntBtn.MouseButton1Click:Connect(function()
             return
         end
 
-        AppState.CurrentState = "TRAVEL"
-        HuntBtn.Text = "STOP ENGAGE"
+        AppState.CurrentState = "FLYING"
+        HuntBtn.Text = "STOP FLIGHT HUNT"
         HuntBtn.BackgroundColor3 = Color3.fromRGB(220, 53, 69)
-        StatusLabel.Text = "Status: Intercepting Target..."
+        StatusLabel.Text = "Status: Flying to Target..."
     end
 end)
