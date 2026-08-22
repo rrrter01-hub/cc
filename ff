@@ -1,11 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.3 (M1 COMBO FULL FIX)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.4 (FIXED M1 & FAST ATTACK)
 -- Features:
---  1. Real M1 Combo Chain (ฟันครบชุด 1-2-3-4 ไม่ติดบัคดาเมจหาย)
---  2. CombatFramework Deep Hook (ขยาย hitboxMagnitude + รีเซ็ต Attack Cooldown)
---  3. Overlapped Stick Position (เกาะติดหลังเป้าหมาย 1.2 Studs)
---  4. Auto Buffs + Strict SafeZone Detection
---  5. Post-Combat Safe Sky Retreat (ฆ่าเสร็จบินขึ้นฟ้าหลบทันที)
+--  1. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework hook)
+--  2. Deep Garbage Collection / Upvalue Hook for CombatController
+--  3. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
+--  4. Auto Buffs (Buso, Ken, Race V3) + SafeZone Detection
+--  5. Post-Combat Safe Sky Retreat + Emergency Sky Healing
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -25,11 +25,13 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 260,
-    StickDistance = 1.2,         -- ระยะแนบชิดด้านหลังศัตรู (การันตี M1 เข้า 100%)
-    HeightOffset = 0.5,          -- ระดับความสูง
-    M1AttackSpeed = 0.08,        -- จังหวะฟัน M1 Combo (วินาที)
-    PrimaryWeapon = "Melee",     -- อาวุธหลักสำหรับฟัน M1 ("Melee" หรือ "Sword")
+    FlySpeed = 280,
+    StickDistance = 1.2,         -- ระยะเกาะหลังศัตรู
+    HeightOffset = 0.5,          -- ระดับความสูงจากพื้น
+    M1AttackSpeed = 0.05,        -- ความเร็วในการสแปม M1 (วินาที)
+    PrimaryWeapon = "Melee",     -- "Melee" หรือ "Sword" หรือ "Blox Fruit"
+    FastAttack = true,           -- เปิดใช้งาน Fast Attack Bypass
+    HitboxSize = 80,             -- ขยายระยะรัศมีฮิตบ็อกซ์
     
     -- SURVIVAL & RETREAT
     AutoBuso = true,
@@ -64,7 +66,7 @@ local AppState = {
 -- UTILITY HELPERS
 -- =========================================================================
 local function GetChar(p) return p and p.Character end
-local function GetRoot(c) return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso")) end
+local function GetRoot(c) return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")) end
 local function GetHum(c)  return c and c:FindFirstChildOfClass("Humanoid") end
 
 local function GetPlayerBounty(player)
@@ -231,7 +233,7 @@ local function EquipWeapon(weaponType)
     local currentTool = char:FindFirstChildOfClass("Tool")
     if currentTool then
         local tType = currentTool.ToolTip ~= "" and currentTool.ToolTip or currentTool:GetAttribute("WeaponType")
-        if not weaponType or tType == weaponType or currentTool.Name:find(weaponType or "") then
+        if not weaponType or tType == weaponType or currentTool.Name:lower():find(weaponType:lower()) then
             return currentTool
         end
     end
@@ -240,7 +242,7 @@ local function EquipWeapon(weaponType)
         for _, tool in ipairs(bp:GetChildren()) do
             if tool:IsA("Tool") then
                 local tType = tool.ToolTip ~= "" and tool.ToolTip or tool:GetAttribute("WeaponType")
-                if not weaponType or tType == weaponType or tool.Name:find(weaponType or "") then
+                if not weaponType or tType == weaponType or tool.Name:lower():find(weaponType:lower()) then
                     hum:EquipTool(tool)
                     return tool
                 end
@@ -256,50 +258,74 @@ local function EquipWeapon(weaponType)
 end
 
 -- =========================================================================
--- ADVANCED COMBAT FRAMEWORK HOOK & M1 COMBO ENGINE
+-- ADVANCED COMBAT FRAMEWORK HOOK & M1 FAST ATTACK ENGINE
 -- =========================================================================
-local CombatFrameworkModule = nil
-pcall(function()
-    CombatFrameworkModule = require(LocalPlayer.PlayerScripts:WaitForChild("CombatFramework", 2))
-end)
+local CombatFramework = nil
+local CombatController = nil
 
-local function GetActiveController()
-    if CombatFrameworkModule and typeof(CombatFrameworkModule) == "table" then
-        return CombatFrameworkModule.activeController
+local function ResolveCombatController()
+    if CombatController and typeof(CombatController) == "table" then
+        return CombatController
     end
-    return nil
+
+    pcall(function()
+        local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not ps then return end
+        local cfModule = ps:FindFirstChild("CombatFramework")
+        if cfModule and cfModule:IsA("ModuleScript") then
+            CombatFramework = require(cfModule)
+            if typeof(CombatFramework) == "table" then
+                if CombatFramework.activeController then
+                    CombatController = CombatFramework.activeController
+                elseif getupvalues then
+                    local upvs = getupvalues(CombatFramework)
+                    for _, val in pairs(upvs) do
+                        if typeof(val) == "table" and rawget(val, "activeController") then
+                            CombatController = val.activeController
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return CombatController
 end
 
+local Net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
+local RegisterAttack = Net and (Net:FindFirstChild("RE/RegisterAttack") or Net:FindFirstChild("RegisterAttack"))
+local RegisterHit = Net and (Net:FindFirstChild("RE/RegisterHit") or Net:FindFirstChild("RegisterHit"))
+
+local comboStep = 1
 local function ExecuteM1Combo()
-    local char = GetChar(LocalPlayer)
-    local hum = GetHum(char)
-    if not char or not hum or hum.Health <= 0 then return end
+    local myChar = GetChar(LocalPlayer)
+    local myHum = GetHum(myChar)
+    if not myChar or not myHum or myHum.Health <= 0 then return end
 
-    -- แก้ไขสถานะการขยับ
-    hum.Sit = false
-    hum.PlatformStand = false
+    myHum.Sit = false
+    myHum.PlatformStand = false
 
-    local tool = char:FindFirstChildOfClass("Tool")
-    if not tool or (Config.PrimaryWeapon and not tool.Name:find(Config.PrimaryWeapon) and tool.ToolTip ~= Config.PrimaryWeapon) then
+    local tool = myChar:FindFirstChildOfClass("Tool")
+    if not tool or (Config.PrimaryWeapon and not tool.Name:lower():find(Config.PrimaryWeapon:lower()) and tool.ToolTip ~= Config.PrimaryWeapon) then
         tool = EquipWeapon(Config.PrimaryWeapon)
     end
 
+    local targetChar = AppState.SelectedPlayer and GetChar(AppState.SelectedPlayer)
+    local targetRoot = targetChar and GetRoot(targetChar)
+    local targetHum = targetChar and GetHum(targetChar)
+
     -- 1. Hook Active Combat Controller
-    local controller = GetActiveController()
+    local controller = ResolveCombatController()
     if controller then
         pcall(function()
-            controller.hitboxMagnitude = 60 -- ขยายรัศมีฮิตบ็อกซ์ให้โจมตีโดนแน่นอน
+            controller.hitboxMagnitude = Config.HitboxSize
             controller.timeToNextAttack = 0
             controller.hitAttempts = 0
             controller.attacking = false
             controller.blocking = false
             
-            -- หมุน Increment คอมโบชุด 1 -> 2 -> 3 -> 4
-            if controller.increment then
-                controller.increment = (controller.increment % 4) + 1
-            else
-                controller.increment = 1
-            end
+            comboStep = (comboStep % 4) + 1
+            controller.increment = comboStep
 
             if controller.attack then
                 controller:attack()
@@ -307,28 +333,40 @@ local function ExecuteM1Combo()
         end)
     end
 
-    -- 2. Tool Activate
+    -- 2. Direct Network Packet Fire (RegisterAttack & RegisterHit)
+    if RegisterAttack then
+        pcall(function()
+            RegisterAttack:FireServer(0)
+        end)
+    end
+
+    if RegisterHit and targetRoot and targetHum and targetHum.Health > 0 then
+        pcall(function()
+            local hitList = {
+                { targetChar, targetRoot }
+            }
+            RegisterHit:FireServer(targetRoot, hitList)
+        end)
+    end
+
+    -- 3. Tool Direct Trigger & Click Emulation
     if tool then
         pcall(function() tool:Activate() end)
     end
 
-    -- 3. Virtual User Input Simulation
     pcall(function()
         VirtualUser:CaptureController()
-        VirtualUser:Button1Down(Vector2.new(50, 50))
-        task.wait(0.01)
-        VirtualUser:Button1Up(Vector2.new(50, 50))
+        VirtualUser:Button1Down(Vector2.new(0, 0))
+        VirtualUser:Button1Up(Vector2.new(0, 0))
     end)
-
-    -- 4. Net Register Attack
-    local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
-    local regAttack = net and (net:FindFirstChild("RE/RegisterAttack") or net:FindFirstChild("RegisterAttack"))
-    if regAttack then
-        pcall(function() regAttack:FireServer(0) end)
-    end
+    
+    pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+    end)
 end
 
--- ลูปคอมแบท M1 อัตโนมัติ
+-- ลูปโจมตี M1 ต่อเนื่อง
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
@@ -339,7 +377,7 @@ task.spawn(function()
 
             if targetChar and targetRoot and myRoot and targetChar.Parent then
                 local dist = (targetRoot.Position - myRoot.Position).Magnitude
-                if dist <= 15 then
+                if dist <= 25 then
                     ExecuteM1Combo()
                 end
             end
@@ -493,7 +531,7 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- เกาะติดหลังศัตรูในระยะ 1.2 Studs (Overlapped Stick Position)
+    -- คำนวณตำแหน่งประกบหลัง 1.2 Studs
     local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
     local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
@@ -504,18 +542,17 @@ RunService.Heartbeat:Connect(function()
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
-    if dist > 4 then
+    if dist > 3.5 then
         AppState.CurrentCombatStatus = "Rushing to Target (" .. math.floor(dist) .. "m)"
         local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then
-            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 25)
+            bv.Velocity = dir * math.min(Config.FlySpeed, dist * 30)
         end
     else
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
-        -- ล็อคมุมมองและตำแหน่งแนบตัวศัตรู
         myRoot.CFrame = CFrame.lookAt(targetPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
         AppState.CurrentCombatStatus = "Executing M1 Combo Chain..."
@@ -596,7 +633,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.3 (M1 COMBO ENGINE)"
+Header.Text = "  ⚡ BOUNTY GOD v7.4 (FIXED M1 ENGINE)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
