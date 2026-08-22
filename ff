@@ -1,11 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v6.0 (SKY-ORBIT & GOD SURVIVAL)
--- Upgrades:
---  1. Overhead Dynamic Orbit (ลอยวนเหนือหัว 14m ศัตรูตีสวนไม่ถึง + หลบสกิลเส้นตรง)
---  2. Auto Ken Haki (เปิดฮาคิสังเกตหลบดาเมจอัตโนมัติ)
---  3. Auto Race Skill (กดเผ่า V3/V4 บัฟถึก/ดาเมจทันทีที่เริ่มสู้)
---  4. Emergency Sky Escape (เลือด < 35% สปีดหนีขึ้นฟ้า 350m รอรีเลือดจนเต็มแล้วดิ่งลงมาซ้ำ)
---  5. Downward Predictive Aim (เล็งมุมก้มยัดสกิลลงหัว 100% แม่นยำ)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v6.2 (STRICT PVP LOCK & STATS RADAR)
+-- Updates:
+--  1. Strict PvP Target Lock (กดเลือกได้เฉพาะคนที่พร้อมสู้จริง CanAttack = true)
+--  2. Full Real-Time Target Stats (Level, HP % / MaxHP, Distance, Bounty)
+--  3. Sky-Orbit Combat Matrix (ลอยวนเหนือหัว 14.5m หลบดาเมจ + ตีลงล่าง 100%)
+--  4. Auto Ken / Buso / Race Ability V3-V4 Activation
+--  5. Emergency Sky Escape (เลือด < 35% หนีขึ้นฟ้าฟื้นฟูอัตโนมัติ)
 -- Platforms: Mobile & PC Compatible
 -- =========================================================================
 
@@ -29,22 +29,22 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 local Config = {
     FlySpeed = 350,              
     HoverHeight = 14.5,          -- ระยะความสูงลอยเหนือหัวศัตรู (Studs)
-    OrbitRadius = 5.0,           -- รัศมีบินวนรอบหัวแบบเกลียว (หลบสกิลเล็งตรง)
+    OrbitRadius = 5.0,           -- รัศมีบินวนรอบหัวแบบเกลียว
     OrbitSpeed = 4.5,            -- ความเร็วในการบินวนรอบ
     AttackDelay = 0.04,          -- ความเร็ว Fast Attack M1
     MultiHitPackets = 4,         
     AimPrediction = 0.13,
     
     -- SURVIVAL MATRIX
-    AutoBuso = true,             -- ฮาคิเกราะตลอดเวลา
-    AutoKen = true,              -- ฮาคิสังเกตหลบดาเมจ
-    AutoRaceV3 = true,           -- กดสกิลเผ่า V3/V4 ทันทีที่เข้าสู้
-    EmergencyEscape = true,      -- หนีขึ้นฟ้าฟื้นฟูเลือด
-    EmergencyHPThreshold = 35,   -- เปอร์เซ็นต์เลือดที่สั่งหนีขึ้นฟ้า
-    RecoveryHPThreshold = 85,    -- เปอร์เซ็นต์เลือดที่ฟื้นฟูเสร็จแล้วกลับลงมาสู้
-    EscapeSkyAltitude = 380,     -- ความสูงลอยหนีขึ้นฟ้า (Studs)
+    AutoBuso = true,             
+    AutoKen = true,              
+    AutoRaceV3 = true,           
+    EmergencyEscape = true,      
+    EmergencyHPThreshold = 35,   -- เลือดต่ำกว่า 35% สั่งหนีขึ้นฟ้า
+    RecoveryHPThreshold = 85,    -- เลือดฟื้นฟูถึง 85% กลับลงมาสู้ต่อ
+    EscapeSkyAltitude = 380,     
     
-    -- ลำดับการสลับอาวุธและยิงสกิล
+    -- ลำดับการยิงสกิล
     SkillRotation = {
         { Type = "Melee", Key = Enum.KeyCode.Z, Hold = 0.05 },
         { Type = "Melee", Key = Enum.KeyCode.X, Hold = 0.08 },
@@ -92,11 +92,24 @@ local function GetPlayerBounty(player)
     return 0
 end
 
+local function GetPlayerLevel(player)
+    if not player then return 1 end
+    local data = player:FindFirstChild("Data")
+    if data and data:FindFirstChild("Level") then
+        return data.Level.Value
+    end
+    local ls = player:FindFirstChild("leaderstats")
+    if ls and ls:FindFirstChild("Level") then
+        return ls.Level.Value
+    end
+    return 1
+end
+
 Stats.StartBounty = GetPlayerBounty(LocalPlayer)
 Stats.CurrentBounty = Stats.StartBounty
 
 -- =========================================================================
--- STATUS CHECKER (SafeZone, PvP, HP, Team)
+-- STATUS CHECKER (SafeZone, PvP, HP, Level, Distance)
 -- =========================================================================
 local function CheckTargetStatus(player)
     local st = {
@@ -106,10 +119,19 @@ local function CheckTargetStatus(player)
         Health = 0,
         MaxHealth = 100,
         Distance = 0,
-        CanAttack = false
+        Level = 1,
+        Bounty = 0,
+        CanAttack = false,
+        Reason = "OK"
     }
 
-    if not player or not player.Parent then return st end
+    if not player or not player.Parent then 
+        st.Reason = "Invalid Player"
+        return st 
+    end
+
+    st.Level = GetPlayerLevel(player)
+    st.Bounty = GetPlayerBounty(player)
 
     local char = GetChar(player)
     local myChar = GetChar(LocalPlayer)
@@ -117,7 +139,10 @@ local function CheckTargetStatus(player)
     local root = GetRoot(char)
     local myRoot = GetRoot(myChar)
 
-    if not char or not hum or not root then return st end
+    if not char or not hum or not root then 
+        st.Reason = "No Character/Dead"
+        return st 
+    end
 
     st.Health = math.floor(hum.Health)
     st.MaxHealth = math.floor(hum.MaxHealth)
@@ -139,15 +164,28 @@ local function CheckTargetStatus(player)
     if LocalPlayer.Team and player.Team then
         if LocalPlayer.Team.Name == "Marines" and player.Team.Name == "Marines" then
             teamCheck = false
+            st.Reason = "Same Marine Team"
         end
     end
 
-    st.CanAttack = st.IsAlive and st.PvPEnabled and not st.InSafeZone and teamCheck
+    if not st.IsAlive then
+        st.Reason = "Dead"
+    elseif st.InSafeZone then
+        st.Reason = "In SafeZone"
+    elseif not st.PvPEnabled then
+        st.Reason = "PvP Disabled"
+    elseif not teamCheck then
+        st.Reason = "Same Marine Team"
+    else
+        st.CanAttack = true
+        st.Reason = "Ready to Attack"
+    end
+
     return st
 end
 
 -- =========================================================================
--- AUTO BUFFS & SURVIVAL TRIGGERS (HAKI + RACE ABILITY)
+-- AUTO BUFFS & SURVIVAL TRIGGERS
 -- =========================================================================
 local function EnsureBuso()
     if not Config.AutoBuso then return end
@@ -163,8 +201,6 @@ local function EnsureKen()
     if not Config.AutoKen then return end
     local char = GetChar(LocalPlayer)
     if not char then return end
-    
-    -- ตรวจสอบและเปิดฮาคิสังเกต
     if not char:FindFirstChild("KenHaki") and not char:FindFirstChild("Observation") then
         local remE = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommE")
         if remE then pcall(function() remE:FireServer("Ken", true) end) end
@@ -183,7 +219,7 @@ end
 local lastRaceSkillTick = 0
 local function TriggerRaceSkill()
     if not Config.AutoRaceV3 then return end
-    if tick() - lastRaceSkillTick < 15 then return end -- ป้องกันกดรัวเกินคูลดาวน์
+    if tick() - lastRaceSkillTick < 15 then return end
     lastRaceSkillTick = tick()
 
     pcall(function()
@@ -194,10 +230,6 @@ local function TriggerRaceSkill()
     pcall(function()
         local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
         if rem then rem:InvokeServer("ActivateAbility") end
-    end)
-    pcall(function()
-        local rem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-        if rem then rem:InvokeServer("Awakening") end
     end)
 end
 
@@ -278,10 +310,8 @@ local function ExecuteTripleAttack(targetChar)
     if not tool then tool = EnsureWeaponEquipped() end
     if not tool then return end
 
-    -- 1. Direct Tool Activate
     pcall(function() tool:Activate() end)
 
-    -- 2. Combat Framework Attack Animation Override
     local ac = GetActiveController()
     if ac then
         pcall(function()
@@ -294,7 +324,6 @@ local function ExecuteTripleAttack(targetChar)
         end)
     end
 
-    -- 3. Remote Event Packet Burst
     local net = ReplicatedStorage:FindFirstChild("Modules") and ReplicatedStorage.Modules:FindFirstChild("Net")
     local regHit = net and (net:FindFirstChild("RE/RegisterHit") or net:FindFirstChild("RegisterHit"))
     local regAttack = net and (net:FindFirstChild("RE/RegisterAttack") or net:FindFirstChild("RegisterAttack"))
@@ -341,7 +370,7 @@ task.spawn(function()
 end)
 
 -- =========================================================================
--- COMBAT & SKILL ROTATION THREAD (DOWNWARD PREDICTIVE BURST)
+-- SKILL ROTATION THREAD
 -- =========================================================================
 local function CastSkillKey(key, holdTime)
     VirtualInputManager:SendKeyEvent(true, key, false, game)
@@ -366,7 +395,6 @@ local function StartSkillRotation(targetChar)
 
                 local tRoot = GetRoot(targetChar)
                 if tRoot then
-                    -- เล็งหน้าเป้าหมายแบบก้มลงหัว (Downward Lock)
                     local predPos = tRoot.Position + (tRoot.AssemblyLinearVelocity * Config.AimPrediction)
                     Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predPos)
                 end
@@ -427,7 +455,7 @@ local function StopHunt()
 end
 
 -- =========================================================================
--- MAIN ENGINE LOOP (SKY-ORBIT & SURVIVAL MATRIX)
+-- MAIN ENGINE LOOP
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if not AppState.IsHunting or not AppState.SelectedPlayer then return end
@@ -443,7 +471,7 @@ RunService.Heartbeat:Connect(function()
 
     local currentHpPercent = (myHum.Health / math.max(1, myHum.MaxHealth)) * 100
 
-    -- 1. EMERGENCY HEAL CHECK (ดีดตัวหนีขึ้นฟ้าถ้าเลือดต่ำ)
+    -- Emergency Sky Heal
     if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.IsHealingInSky = true
@@ -463,7 +491,7 @@ RunService.Heartbeat:Connect(function()
     end
 
     local st = CheckTargetStatus(AppState.SelectedPlayer)
-    if not st.IsAlive or st.InSafeZone or not st.PvPEnabled then
+    if not st.CanAttack then
         StopHunt()
         return
     end
@@ -472,13 +500,12 @@ RunService.Heartbeat:Connect(function()
     local targetRoot = GetRoot(targetChar)
     if not targetRoot then return end
 
-    -- รันระบบเอาตัวรอดอัตโนมัติ
     EnsureBuso()
     EnsureKen()
     TriggerRaceSkill()
     ApplyBypass(myRoot)
 
-    -- 2. DYNAMIC SKY ORBIT POSITIONING (คำนวณตำแหน่งวนรอบหัวแบบ 3 มิติ)
+    -- Dynamic Sky Orbit
     local angle = tick() * Config.OrbitSpeed
     local offsetX = math.cos(angle) * Config.OrbitRadius
     local offsetZ = math.sin(angle) * Config.OrbitRadius
@@ -489,20 +516,15 @@ RunService.Heartbeat:Connect(function()
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
-        -- ให้ตัวหันก้มมองเป้าหมายตลอดเวลา
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
     if dist > 14 then
-        -- กำลังบินเข้าหาเป้าหมาย
         AppState.CurrentCombatStatus = "Sky Diving to target (" .. math.floor(dist) .. "m)"
         local dir = (targetPos - currentPos).Unit
         local bv = myRoot:FindFirstChild("BountyBV")
-        if bv then
-            bv.Velocity = dir * Config.FlySpeed
-        end
+        if bv then bv.Velocity = dir * Config.FlySpeed end
     else
-        -- ถึงระยะเหนือหัว: ล็อคลอยวน + เล็งกล้องดิ่งลง + สั่งคอมโบ
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
@@ -516,7 +538,7 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- =========================================================================
--- GUI (MOBILE & PC UNIVERSAL DASHBOARD)
+-- GUI (DASHBOARD WITH FULL STATS & STRICT LOCK)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BountyGodUniversal"
@@ -565,8 +587,8 @@ end)
 -- 2. MAIN WINDOW FRAME
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.92, 0, 0.75, 0) or UDim2.new(0, 540, 0, 440)
-MainFrame.Position = IsMobile and UDim2.new(0.04, 0, 0.12, 0) or UDim2.new(0.5, -270, 0.5, -220)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.78, 0) or UDim2.new(0, 560, 0, 460)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.10, 0) or UDim2.new(0.5, -280, 0.5, -230)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -592,7 +614,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v6.0 (SKY-ORBIT & AUTO SURVIVE)"
+Header.Text = "  ⚡ BOUNTY GOD v6.2 (STRICT PVP & LIVE STATS)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -694,6 +716,7 @@ HuntBtn.TextSize = IsMobile and 10 or 11
 HuntBtn.Parent = ActionCard
 Instance.new("UICorner", HuntBtn).CornerRadius = UDim.new(0, 6)
 
+-- ฟังก์ชันเรนเดอร์รายชื่อผู้เล่น พร้อมโชว์ เวล, เลือด, ระยะ, สถานะ PvP แบบเข้มงวด
 local function RenderRadarRows()
     for _, child in ipairs(ScrollList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -702,20 +725,29 @@ local function RenderRadarRows()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local st = CheckTargetStatus(player)
-            local pBounty = GetPlayerBounty(player)
+            local hpPercent = math.floor((st.Health / math.max(1, st.MaxHealth)) * 100)
 
             local Row = Instance.new("Frame")
-            Row.Size = UDim2.new(1, -8, 0, 42)
-            Row.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(45, 60, 95) or Color3.fromRGB(19, 23, 33)
+            Row.Size = UDim2.new(1, -8, 0, 48)
+            Row.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(45, 65, 105) or Color3.fromRGB(19, 23, 33)
             Row.Parent = ScrollList
             Instance.new("UICorner", Row).CornerRadius = UDim.new(0, 6)
 
-            local statusTag = st.InSafeZone and "<font color='#FFD700'>[SAFE ZONE]</font>"
-                or (not st.PvPEnabled and "<font color='#888888'>[PVP OFF]</font>")
-                or "<font color='#00FF7F'>[READY]</font>"
+            local statusTag = ""
+            if st.CanAttack then
+                statusTag = "<font color='#00FF7F'>[READY]</font>"
+            elseif st.InSafeZone then
+                statusTag = "<font color='#FFD700'>[SAFE ZONE]</font>"
+            elseif not st.PvPEnabled then
+                statusTag = "<font color='#FF5555'>[PVP OFF]</font>"
+            elseif not st.IsAlive then
+                statusTag = "<font color='#888888'>[DEAD]</font>"
+            else
+                statusTag = "<font color='#FF8800'>[" .. st.Reason:upper() .. "]</font>"
+            end
 
             local Info = Instance.new("TextLabel")
-            Info.Size = UDim2.new(0.58, 0, 1, 0)
+            Info.Size = UDim2.new(0.60, 0, 1, 0)
             Info.Position = UDim2.new(0, 8, 0, 0)
             Info.BackgroundTransparency = 1
             Info.RichText = true
@@ -723,13 +755,20 @@ local function RenderRadarRows()
             Info.TextSize = IsMobile and 10 or 11
             Info.TextColor3 = Color3.fromRGB(240, 240, 240)
             Info.TextXAlignment = Enum.TextXAlignment.Left
-            Info.Text = string.format("<b>%s</b> %s<br/>Bounty: %s | HP: %d%% | %dm", 
-                player.DisplayName, statusTag, tostring(pBounty), math.floor((st.Health/math.max(1, st.MaxHealth))*100), st.Distance)
+            
+            -- แสดงผล เวล, เลือด, ระยะห่าง, ค่าหัว แบบละเอียด
+            Info.Text = string.format(
+                "<b>%s</b> %s | <font color='#00E5FF'>Lv.%d</font><br/>" ..
+                "<font color='#00FF7F'>HP: %d%%</font> (%d/%d) | <font color='#FFD700'>%dm</font> | B: %s",
+                player.DisplayName, statusTag, st.Level,
+                hpPercent, st.Health, st.MaxHealth, st.Distance, tostring(st.Bounty)
+            )
             Info.Parent = Row
 
+            -- Spy Cam Button
             local SpyBtn = Instance.new("TextButton")
-            SpyBtn.Size = UDim2.new(0, IsMobile and 46 or 52, 0, 26)
-            SpyBtn.Position = UDim2.new(0.60, 0, 0.5, -13)
+            SpyBtn.Size = UDim2.new(0, IsMobile and 46 or 50, 0, 26)
+            SpyBtn.Position = UDim2.new(0.62, 0, 0.5, -13)
             SpyBtn.BackgroundColor3 = Color3.fromRGB(48, 85, 150)
             SpyBtn.Text = (AppState.IsSpectating and AppState.SelectedPlayer == player) and "UNSPY" or "SPY"
             SpyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -754,20 +793,35 @@ local function RenderRadarRows()
                 end
             end)
 
+            -- Strict Select Button (กดได้เฉพาะคนที่ CanAttack = true เท่านั้น)
             local SelBtn = Instance.new("TextButton")
-            SelBtn.Size = UDim2.new(0, IsMobile and 54 or 60, 0, 26)
-            SelBtn.Position = UDim2.new(IsMobile and 0.77 or 0.80, 0, 0.5, -13)
-            SelBtn.BackgroundColor3 = st.CanAttack and Color3.fromRGB(0, 160, 90) or Color3.fromRGB(70, 75, 85)
-            SelBtn.Text = (AppState.SelectedPlayer == player) and "LOCKED" or "SELECT"
-            SelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            SelBtn.Size = UDim2.new(0, IsMobile and 54 or 62, 0, 26)
+            SelBtn.Position = UDim2.new(IsMobile and 0.77 or 0.78, 0, 0.5, -13)
+            
+            if not st.CanAttack then
+                SelBtn.BackgroundColor3 = Color3.fromRGB(45, 48, 55)
+                SelBtn.Text = "NO PVP"
+                SelBtn.TextColor3 = Color3.fromRGB(130, 135, 145)
+            else
+                SelBtn.BackgroundColor3 = (AppState.SelectedPlayer == player) and Color3.fromRGB(0, 180, 100) or Color3.fromRGB(0, 140, 80)
+                SelBtn.Text = (AppState.SelectedPlayer == player) and "LOCKED" or "SELECT"
+                SelBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            end
+            
             SelBtn.Font = Enum.Font.GothamBold
             SelBtn.TextSize = 10
             SelBtn.Parent = Row
             Instance.new("UICorner", SelBtn).CornerRadius = UDim.new(0, 4)
 
             SelBtn.MouseButton1Click:Connect(function()
+                -- ล็อคเข้มงวด: ถ้าตีไม่ได้ ห้ามเลือก
+                if not st.CanAttack then
+                    StatusLabel.Text = "Cannot select: " .. st.Reason
+                    return
+                end
+
                 AppState.SelectedPlayer = player
-                StatusLabel.Text = string.format("Target: %s (%s)", player.DisplayName, st.CanAttack and "Ready" or "Safe/Off")
+                StatusLabel.Text = string.format("Target: %s (Lv.%d | Ready)", player.DisplayName, st.Level)
                 RenderRadarRows()
             end)
         end
@@ -799,16 +853,10 @@ HuntBtn.MouseButton1Click:Connect(function()
         end
 
         local st = CheckTargetStatus(AppState.SelectedPlayer)
-        if not st.IsAlive then
-            StatusLabel.Text = "Error: Target is dead!"
-            return
-        end
-        if st.InSafeZone then
-            StatusLabel.Text = "Alert: Target in SafeZone!"
-            return
-        end
-        if not st.PvPEnabled then
-            StatusLabel.Text = "Alert: Target PvP Disabled!"
+        if not st.CanAttack then
+            StatusLabel.Text = "Cannot Hunt: " .. st.Reason
+            AppState.SelectedPlayer = nil
+            RenderRadarRows()
             return
         end
 
