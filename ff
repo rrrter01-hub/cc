@@ -1,11 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.7 (OVERHEAD EVASION GOD)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.8 (INSTANT WARP & TP HUB)
 -- Features:
---  1. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หมุนวนหลบสกิล 360°)
---  2. Dynamic Evasive Micro-Jitter (ขยับหลบวิถีสกิลอัตโนมัติ ทำให้ศัตรูตีไม่โดน)
---  3. Downward M1 Hitbox Expansion (ขยายฮิตบ็อกซ์ลงล่าง โจมตีเข้า 100%)
---  4. Real-Time 3D Billboard ESP + Live Radar
---  5. Post-Combat Max Sky Orbit + Auto Return to Starter Safe Island
+--  1. Instant Sky-Burst & Direct CFrame Warp to Starter Island on Kill
+--  2. Quick Travel Dashboard Buttons: [TP Starter Island] & [TP Cafe / Hub]
+--  3. Overhead Helix Orbit (เกาะเหนือหัวเป้าหมาย 9.5 Studs หลบสกิล 360°)
+--  4. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework Hook)
+--  5. Real-Time 3D Billboard ESP & Status Radar
 --  6. Auto Buffs (Buso Haki, Ken Haki, Race V3 Skill)
 -- =========================================================================
 
@@ -23,20 +23,26 @@ local Camera = Workspace.CurrentCamera
 local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- =========================================================================
--- STARTER ISLAND COORDINATES BY SEA
+-- WARP COORDINATES BY SEA
 -- =========================================================================
-local StarterIslandLocations = {
-    [2753915549] = Vector3.new(1071, 60, 1426),    -- Sea 1: Pirate Starter / Windmill Island
-    [4442272183] = Vector3.new(-380, 80, 298),      -- Sea 2: Cafe Safe Hub (Kingdom of Rose)
-    [7449423635] = Vector3.new(-5085, 320, -3156),  -- Sea 3: Castle on the Sea Safe Hub
+local StarterLocations = {
+    [2753915549] = Vector3.new(1071, 60, 1426),    -- Sea 1: Pirate Starter / Windmill
+    [4442272183] = Vector3.new(-380, 80, 298),      -- Sea 2: Starter / Kingdom of Rose
+    [7449423635] = Vector3.new(-5085, 320, -3156),  -- Sea 3: Castle on the Sea Hub
+}
+
+local CafeLocations = {
+    [2753915549] = Vector3.new(1071, 60, 1426),    -- Sea 1: Fallback Starter
+    [4442272183] = Vector3.new(-380, 77, 255),     -- Sea 2: Cafe Safe Interior
+    [7449423635] = Vector3.new(-12463, 375, -7550), -- Sea 3: Mansion Safe Zone
 }
 
 local function GetStarterIslandPos()
-    local placeId = game.PlaceId
-    if StarterIslandLocations[placeId] then
-        return StarterIslandLocations[placeId]
-    end
-    return Vector3.new(1071, 60, 1426)
+    return StarterLocations[game.PlaceId] or Vector3.new(1071, 60, 1426)
+end
+
+local function GetCafePos()
+    return CafeLocations[game.PlaceId] or Vector3.new(-380, 77, 255)
 end
 
 -- =========================================================================
@@ -45,10 +51,10 @@ end
 local Config = {
     FlySpeed = 310,
     
-    -- OVERHEAD EVASION SETTINGS (ล็อคเหนือหัว + หมุนหลบสกิล)
-    OverheadHeight = 9.5,         -- ความสูงเหนือหัวศัตรู (หลบหมัด/ดาบ/สกิลแนวราบ)
+    -- OVERHEAD EVASION (เกาะเหนือหัว + หลบสกิล)
+    OverheadHeight = 9.5,         -- ความสูงเหนือหัวศัตรู
     OrbitRadius = 3.0,            -- รัศมีการหมุนวนรอบหัว (Helix Orbit)
-    OrbitSpeed = 7.5,             -- ความเร็วในการหมุนหลบวิถีสกิล (เรเดียน/วิ)
+    OrbitSpeed = 7.5,             -- ความเร็วการหมุนหลบสกิล
     EnableEvasiveJitter = true,   -- สุ่มจังหวะกระตุกหลบสกิลแนวตั้ง
     
     -- COMBAT & M1
@@ -57,12 +63,12 @@ local Config = {
     HitboxSize = 100,             -- ขยายระยะฮิตบ็อกซ์ลงล่าง
     
     -- ESP SETTINGS
-    EnableESP = true,             -- 3D ESP Status Display
+    EnableESP = true,             -- 3D ESP Status
     ESPTextSize = 11,
     
-    -- SURVIVAL & ISLAND RETREAT
-    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุดหลังฆ่าสำเร็จ (1,500 Studs)
-    AutoReturnToStarter = true,   -- บินกลับเกาะแรกทันทีหลังฆ่า
+    -- SURVIVAL & WARP
+    MaxSkyAltitude = 1500,        -- บินขึ้นฟ้าสูงสุด (1,500 Studs)
+    AutoWarpOnKill = true,        -- วาปกลับเกาะแรกทันทีหลังฆ่า
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
@@ -581,85 +587,53 @@ local function StopHunt(reason)
 end
 
 -- =========================================================================
--- POST-KILL MAXIMUM SKY RETREAT + RETURN TO STARTER ISLAND
+-- INSTANT WARP ENGINE & POST-KILL RETREAT
 -- =========================================================================
+local function InstantTeleport(targetPos)
+    local myChar = GetChar(LocalPlayer)
+    local myRoot = GetRoot(myChar)
+    local myHum = GetHum(myChar)
+    if not myChar or not myRoot or not myHum then return end
+
+    myHum.Sit = false
+    myHum.PlatformStand = false
+    ApplyPhysics(myRoot)
+
+    local targetCF = typeof(targetPos) == "Vector3" and CFrame.new(targetPos) or targetPos
+    
+    local bv = myRoot:FindFirstChild("BountyBV")
+    if bv then bv.Velocity = Vector3.zero end
+
+    myRoot.CFrame = targetCF
+    task.wait(0.05)
+    if bv then bv.Velocity = Vector3.zero end
+end
+
 local function TriggerMaxSkyRetreat()
     if AppState.IsRetreating then return end
     AppState.IsHunting = false
     AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = "KILL CONFIRMED! Ascending to Sky & Navigating to Starter Island..."
+    AppState.CurrentCombatStatus = "KILL CONFIRMED! Sky Ascend -> Instant Warp to Starter..."
 
     task.spawn(function()
         local starterPos = GetStarterIslandPos()
         local skyAltitude = Config.MaxSkyAltitude
 
-        -- Phase 1: พุ่งตรงขึ้นสู่ท้องฟ้าสูงสุด (1,500 Studs)
+        -- Phase 1: ยิงตัวขึ้นฟ้า 0.3 วินาทีเพื่อหลุดจากดาเมจพื้น
         local myChar = GetChar(LocalPlayer)
         local myRoot = GetRoot(myChar)
         if myRoot then
-            local startTime = tick()
-            while (tick() - startTime < 2.5) do
-                myChar = GetChar(LocalPlayer)
-                myRoot = GetRoot(myChar)
-                if not myRoot then break end
-                
-                ApplyPhysics(myRoot)
-                EnsureKen()
-                EnsureBuso()
-                
-                local upPos = Vector3.new(myRoot.Position.X, skyAltitude, myRoot.Position.Z)
-                local diff = upPos - myRoot.Position
-                local bv = myRoot:FindFirstChild("BountyBV")
-                if bv then
-                    bv.Velocity = diff.Magnitude > 20 and diff.Unit * (Config.FlySpeed + 150) or Vector3.zero
-                end
-                task.wait(0.05)
-            end
-        end
-
-        -- Phase 2: บินบนฟ้าชั้นบรรยากาศตรงกลับเกาะแรก (Starter Safe Island)
-        local skyStarterPos = Vector3.new(starterPos.X, skyAltitude, starterPos.Z)
-        while Config.AutoReturnToStarter do
-            myChar = GetChar(LocalPlayer)
-            myRoot = GetRoot(myChar)
-            local myHum = GetHum(myChar)
-            if not myChar or not myRoot or not myHum or myHum.Health <= 0 then break end
-
             ApplyPhysics(myRoot)
             EnsureKen()
             EnsureBuso()
-
-            local horizontalDist = (Vector3.new(myRoot.Position.X, 0, myRoot.Position.Z) - Vector3.new(starterPos.X, 0, starterPos.Z)).Magnitude
-            AppState.CurrentCombatStatus = string.format("Returning to Starter Island (%dm)...", math.floor(horizontalDist))
-
-            if horizontalDist <= 35 then
-                break
-            end
-
-            local dir = (skyStarterPos - myRoot.Position).Unit
-            local bv = myRoot:FindFirstChild("BountyBV")
-            if bv then
-                bv.Velocity = dir * (Config.FlySpeed + 120)
-            end
-            task.wait(0.05)
+            myRoot.CFrame = CFrame.new(myRoot.Position.X, skyAltitude, myRoot.Position.Z)
+            task.wait(0.35)
         end
 
-        -- Phase 3: ค่อยๆ ร่อนลงสู่พื้นที่ปลอดภัยของเกาะแรก
-        AppState.CurrentCombatStatus = "Descending to Starter Safe Zone..."
-        local descendStart = tick()
-        while (tick() - descendStart < 4.0) do
-            myChar = GetChar(LocalPlayer)
-            myRoot = GetRoot(myChar)
-            if not myRoot then break end
-
-            local diff = starterPos - myRoot.Position
-            if diff.Magnitude <= 10 then break end
-
-            local bv = myRoot:FindFirstChild("BountyBV")
-            if bv then
-                bv.Velocity = diff.Unit * math.min(Config.FlySpeed, diff.Magnitude * 15)
-            end
-            task.wait(0.05)
+        -- Phase 2: วาปตรงกลับเกาะแรกทันที (Instant Warp)
+        if Config.AutoWarpOnKill then
+            InstantTeleport(starterPos + Vector3.new(0, 6, 0))
+            task.wait(0.2)
         end
 
         myChar = GetChar(LocalPlayer)
@@ -669,12 +643,12 @@ local function TriggerMaxSkyRetreat()
 
         AppState.IsRetreating = false
         AppState.SelectedPlayer = nil
-        StopHunt("Safely Returned to Starter Island")
+        StopHunt("Safely Warped to Starter Island")
     end)
 end
 
 -- =========================================================================
--- MAIN COMBAT ENGINE LOOP (OVERHEAD HELIX ORBIT & EVASION)
+-- MAIN COMBAT ENGINE LOOP (OVERHEAD HELIX ORBIT)
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if AppState.IsRetreating then return end
@@ -717,7 +691,7 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย -> พุ่งขึ้นฟ้าและบินกลับเกาะแรกทันที
+    -- ตรวจสอบการตายของเป้าหมาย -> พุ่งขึ้นฟ้าและวาปกลับเกาะแรกทันที
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
         TriggerMaxSkyRetreat()
         return
@@ -737,14 +711,11 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- =========================================================================
-    -- OVERHEAD HELIX ORBIT EVASION CALCULATION (คำนวณตำแหน่งเหนือหัว + หลบสกิล)
-    -- =========================================================================
+    -- คำนวณตำแหน่งเหนือหัว + หมุนวนหลบสกิล (Helix Orbit)
     local orbitAngle = tick() * Config.OrbitSpeed
     local xOffset = math.cos(orbitAngle) * Config.OrbitRadius
     local zOffset = math.sin(orbitAngle) * Config.OrbitRadius
     
-    -- Jitter แนวตั้ง เพื่อไม่ให้สกิลพุ่งตรงโดนตัว
     local verticalJitter = Config.EnableEvasiveJitter and (math.sin(tick() * 8) * 1.2) or 0
     local targetHeight = Config.OverheadHeight + verticalJitter
 
@@ -754,7 +725,6 @@ RunService.Heartbeat:Connect(function()
 
     local bg = myRoot:FindFirstChild("BountyBG")
     if bg then
-        -- ล็อคมุมมองก้มลงเล็งตรงไปที่หัวศัตรู
         bg.CFrame = CFrame.lookAt(myRoot.Position, targetRoot.Position)
     end
 
@@ -769,15 +739,14 @@ RunService.Heartbeat:Connect(function()
         local bv = myRoot:FindFirstChild("BountyBV")
         if bv then bv.Velocity = Vector3.zero end
         
-        -- ล็อคตำแหน่งเหนือหัวพร้อมหันหน้ามองศัตรูจากด้านบน
         myRoot.CFrame = CFrame.lookAt(targetOverheadPos, targetRoot.Position)
         Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetRoot.Position)
-        AppState.CurrentCombatStatus = "Overhead Helix Evasion Active (Striking Down)"
+        AppState.CurrentCombatStatus = "Overhead Helix Evasion (Striking Down)"
     end
 end)
 
 -- =========================================================================
--- GUI DASHBOARD
+-- GUI DASHBOARD (WITH QUICK WARP BUTTONS)
 -- =========================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BountyGodUniversal"
@@ -824,8 +793,8 @@ end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.82, 0) or UDim2.new(0, 570, 0, 480)
-MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.08, 0) or UDim2.new(0.5, -285, 0.5, -240)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.85, 0) or UDim2.new(0, 570, 0, 500)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.07, 0) or UDim2.new(0.5, -285, 0.5, -250)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -850,7 +819,7 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.7 (OVERHEAD EVASION)"
+Header.Text = "  ⚡ BOUNTY GOD v7.8 (INSTANT WARP HUB)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
@@ -858,26 +827,65 @@ Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
 
+-- QUICK ACTION BUTTONS (TP STARTER, TP CAFE, ESP)
+local ActionToolbar = Instance.new("Frame")
+ActionToolbar.Size = UDim2.new(1, -16, 0, 30)
+ActionToolbar.Position = UDim2.new(0, 8, 0, 42)
+ActionToolbar.BackgroundTransparency = 1
+ActionToolbar.Parent = MainFrame
+
+local TPStarterBtn = Instance.new("TextButton")
+TPStarterBtn.Size = UDim2.new(0.32, -4, 1, 0)
+TPStarterBtn.Position = UDim2.new(0, 0, 0, 0)
+TPStarterBtn.BackgroundColor3 = Color3.fromRGB(0, 122, 255)
+TPStarterBtn.Text = "🏝️ TP STARTER"
+TPStarterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+TPStarterBtn.Font = Enum.Font.GothamBold
+TPStarterBtn.TextSize = IsMobile and 10 or 11
+TPStarterBtn.Parent = ActionToolbar
+Instance.new("UICorner", TPStarterBtn).CornerRadius = UDim.new(0, 6)
+
+local TPCafeBtn = Instance.new("TextButton")
+TPCafeBtn.Size = UDim2.new(0.32, -4, 1, 0)
+TPCafeBtn.Position = UDim2.new(0.34, 0, 0, 0)
+TPCafeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+TPCafeBtn.Text = "☕ TP CAFE/HUB"
+TPCafeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+TPCafeBtn.Font = Enum.Font.GothamBold
+TPCafeBtn.TextSize = IsMobile and 10 or 11
+TPCafeBtn.Parent = ActionToolbar
+Instance.new("UICorner", TPCafeBtn).CornerRadius = UDim.new(0, 6)
+
 local ESPToggleBtn = Instance.new("TextButton")
-ESPToggleBtn.Size = UDim2.new(0, 80, 0, 24)
-ESPToggleBtn.Position = UDim2.new(1, -90, 0, 7)
+ESPToggleBtn.Size = UDim2.new(0.32, -4, 1, 0)
+ESPToggleBtn.Position = UDim2.new(0.68, 0, 0, 0)
 ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
-ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
+ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP: ON" or "👁️ ESP: OFF"
 ESPToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ESPToggleBtn.Font = Enum.Font.GothamBold
-ESPToggleBtn.TextSize = 10
-ESPToggleBtn.Parent = Header
-Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 4)
+ESPToggleBtn.TextSize = IsMobile and 10 or 11
+ESPToggleBtn.Parent = ActionToolbar
+Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 6)
 
 ESPToggleBtn.MouseButton1Click:Connect(function()
     Config.EnableESP = not Config.EnableESP
-    ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
+    ESPToggleBtn.Text = Config.EnableESP and "👁️ ESP: ON" or "👁️ ESP: OFF"
     ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
 end)
 
+TPStarterBtn.MouseButton1Click:Connect(function()
+    StopHunt("Manual Warp: Starter Island")
+    InstantTeleport(GetStarterIslandPos() + Vector3.new(0, 6, 0))
+end)
+
+TPCafeBtn.MouseButton1Click:Connect(function()
+    StopHunt("Manual Warp: Cafe / Hub")
+    InstantTeleport(GetCafePos() + Vector3.new(0, 6, 0))
+end)
+
 local StatsCard = Instance.new("Frame")
-StatsCard.Size = UDim2.new(1, -16, 0, 60)
-StatsCard.Position = UDim2.new(0, 8, 0, 44)
+StatsCard.Size = UDim2.new(1, -16, 0, 56)
+StatsCard.Position = UDim2.new(0, 8, 0, 76)
 StatsCard.BackgroundColor3 = Color3.fromRGB(24, 29, 42)
 StatsCard.Parent = MainFrame
 Instance.new("UICorner", StatsCard).CornerRadius = UDim.new(0, 8)
@@ -915,7 +923,7 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
-                -- ฆ่าได้สำเร็จ -> ลอยขึ้นฟ้าสูงสุดและบินกลับเกาะแรก
+                -- ฆ่าได้สำเร็จ -> พุ่งขึ้นฟ้าแล้ววาปกลับเกาะแรกทันที
                 TriggerMaxSkyRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
@@ -930,8 +938,8 @@ SetupBountyListener()
 UpdateStatsDisplay()
 
 local ScrollList = Instance.new("ScrollingFrame")
-ScrollList.Size = UDim2.new(1, -16, 1, -175)
-ScrollList.Position = UDim2.new(0, 8, 0, 110)
+ScrollList.Size = UDim2.new(1, -16, 1, -200)
+ScrollList.Position = UDim2.new(0, 8, 0, 136)
 ScrollList.BackgroundColor3 = Color3.fromRGB(11, 13, 18)
 ScrollList.ScrollBarThickness = IsMobile and 6 or 4
 ScrollList.Parent = MainFrame
