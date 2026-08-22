@@ -1,6 +1,8 @@
 -- =========================================================================
--- BLOX FRUITS: ZERO-BUG AUTO SEA BEAST (STATE MACHINE ENGINE)
+-- BLOX FRUITS: ZERO-BUG AUTO SEA BEAST HUNTER (V4.0 ULTIMATE)
 -- Sea 3 - Tiki Outpost to Danger Zone 6
+-- Architecture: 6-Stage State Machine + Anti-Rubberband Tween + 
+-- Dynamic Anti-Drown Platform + Target Priority Lock + Watchdog Timer
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -9,225 +11,478 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
--- Waypoints เส้นทางการเดินเรือจากเกาะ Tiki (Sea 3) ไป Danger Zone 6
-local WAYPOINTS = {
-    TikiPort    = Vector3.new(-16100, 15, 450),    -- จุดท่าเรือเกาะ Tiki
-    Zone1_2     = Vector3.new(-18000, 60, -1000),  -- เข้า Danger Zone 1-2
-    Zone3_4     = Vector3.new(-22000, 60, -2500),  -- เข้า Danger Zone 3-4
-    Zone5_6     = Vector3.new(-26000, 60, -4500)   -- จุดล่าหลัก Danger Zone 5-6
+-- =========================================================================
+-- 1. CONFIGURATION & STATE MANAGEMENT
+-- =========================================================================
+local Config = {
+    Enabled = true,
+    HuntSeaBeast = true,
+    HuntTerrorShark = true,
+    HuntGhostShip = false,
+    SafeCombatHeight = 75, -- ความสูงเหนือหัวเจ้าทะเล (Studs)
+    TransitHeight = 80,    -- ความสูงในการบินเดินทาง (เหนือระดับน้ำทะเล)
+    TweenSpeed = 230,      -- ความเร็วเคลื่อนที่ (Studs/sec ปลอดภัยจาก Rubberband)
+    AutoSkills = true,
+    SelectedWeapon = "Fruit", -- Melee, Sword, Fruit
+    BoatType = "GrandBrigade", -- GrandBrigade, Miracle, Guardian
+    WatchdogTimeout = 45   -- เวลาตัดรีเซ็ตอัตโนมัติหากค้าง (วินาที)
 }
 
-local CurrentState = "STAGE_1_PREPARE"
-local TargetSeaBeast = nil
-local TargetRootPart = nil
+local State = {
+    Current = "STAGE_1_PREPARE",
+    StateStartTime = os.time(),
+    TargetEntity = nil,
+    TargetRootPart = nil,
+    ActiveTween = nil
+}
 
--- สร้างแท่นเหยียบกันตกน้ำแบบล็อกตำแหน่งตัวละคร
+-- Waypoints เส้นทางจากเกาะ Tiki Outpost (Sea 3) ไป Danger Zone 6
+local WAYPOINTS = {
+    TikiSpawn   = Vector3.new(-16100, 15, 450),
+    TikiPort    = Vector3.new(-16350, 15, 120),
+    Zone1_Entry = Vector3.new(-18000, Config.TransitHeight, -800),
+    Zone2_3     = Vector3.new(-20500, Config.TransitHeight, -1800),
+    Zone4_5     = Vector3.new(-23500, Config.TransitHeight, -3200),
+    Zone6_Apex  = Vector3.new(-27000, Config.TransitHeight, -5000)
+}
+
+-- =========================================================================
+-- 2. SUBSYSTEM: ANTI-DROWN PLATFORM & Y-AXIS LOCK
+-- =========================================================================
 local SafePlatform = Instance.new("Part")
-SafePlatform.Name = "SafeHoverPlatform"
-SafePlatform.Size = Vector3.new(30, 2, 30)
+SafePlatform.Name = "BF_SafePlatform"
+SafePlatform.Size = Vector3.new(45, 2, 45)
 SafePlatform.Anchored = true
 SafePlatform.CanCollide = true
 SafePlatform.Transparency = 0.8
 SafePlatform.BrickColor = BrickColor.new("Cyan")
+SafePlatform.Material = Enum.Material.Neon
 SafePlatform.Position = Vector3.new(0, -5000, 0)
 SafePlatform.Parent = workspace
 
--- ฟังก์ชันเคลื่อนที่แบบสมูท ไม่โดน Anti-Cheat เตะ
-local function smoothMoveTo(targetPosition, speed)
+-- ล็อกแท่นเหยียบให้อยู่ใต้เท้าผู้เล่นตลอดเวลาเมื่อเข้าสู่โหมดต่อสู้
+RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    if hrp and (State.Current == "STAGE_5_COMBAT" or State.Current == "STAGE_3_PATROL") then
+        SafePlatform.Position = hrp.Position - Vector3.new(0, 3.5, 0)
+        SafePlatform.CanCollide = true
+    else
+        SafePlatform.Position = Vector3.new(0, -5000, 0)
+        SafePlatform.CanCollide = false
+    end
+end)
 
-    speed = speed or 250
-    local distance = (hrp.Position - targetPosition).Magnitude
-    local time = distance / speed
-
-    local tweenInfo = TweenInfo.new(time, Enum.EasingStyle.Linear)
-    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPosition)})
-    
-    hrp.Velocity = Vector3.zero
-    tween:Play()
-    tween.Completed:Wait()
-    hrp.Velocity = Vector3.zero
-end
-
--- ฟังก์ชันค้นหาและยืนยันโมเดลเจ้าทะเล
-local function findSeaBeast()
-    local enemies = workspace:FindFirstChild("Enemies")
-    if not enemies then return nil, nil end
-
-    for _, entity in ipairs(enemies:GetChildren()) do
-        if string.find(string.lower(entity.Name), "sea") and entity:FindFirstChild("Humanoid") then
-            if entity.Humanoid.Health > 0 then
-                local root = entity:FindFirstChild("Head") or entity:FindFirstChild("HumanoidRootPart") or entity:FindFirstChildWhichIsA("BasePart")
-                if root then
-                    return entity, root
+-- NoClip ป้องกันการชนเกล็ดเจ้าทะเลหรือสิ่งกีดขวาง
+RunService.Stepped:Connect(function()
+    if Config.Enabled then
+        local char = LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
                 end
             end
         end
     end
-    return nil, nil
+end)
+
+-- Anti-AFK ป้องกันการตัดการเชื่อมต่อ 20 นาที
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0, 0))
+end)
+
+-- =========================================================================
+-- 3. SUBSYSTEM: NAVIGATION & SMOOTH TWEEN ENGINE
+-- =========================================================================
+local function cancelCurrentTween()
+    if State.ActiveTween then
+        State.ActiveTween:Cancel()
+        State.ActiveTween = nil
+    end
 end
 
--- ลูปสแปมสกิล (Z, X, C, V) แบบเล็งมุมมองลงหาหัวเจ้าทะเล
-local function executeSkillCombo(targetRoot)
+local function smoothMoveTo(targetPos, speed)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp and targetRoot then
-        -- ล็อกมุมหันหน้าลงหาหัวเจ้าทะเลเพื่อเล็งสกิล
-        hrp.CFrame = CFrame.lookAt(hrp.Position, targetRoot.Position)
+    if not hrp then return false end
+
+    speed = speed or Config.TweenSpeed
+    local distance = (hrp.Position - targetPos).Magnitude
+    if distance < 5 then return true end
+
+    local time = distance / speed
+    local tweenInfo = TweenInfo.new(time, Enum.EasingStyle.Linear)
+    
+    cancelCurrentTween()
+    State.ActiveTween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
+    
+    hrp.Velocity = Vector3.zero
+    State.ActiveTween:Play()
+    
+    local completed = false
+    local conn
+    conn = State.ActiveTween.Completed:Connect(function(playbackState)
+        if playbackState == Enum.PlaybackState.Completed then
+            completed = true
+        end
+        conn:Disconnect()
+    end)
+
+    while not completed and State.ActiveTween do
+        -- ถ้าเจอเจ้าทะเลระหว่างเดินทาง ให้หยุด Tween และเข้าสู่โหมดสู้ทันที
+        local enemies = workspace:FindFirstChild("Enemies")
+        if enemies and enemies:FindFirstChild("Sea Beast") then
+            cancelCurrentTween()
+            return true
+        end
+        task.wait(0.1)
     end
 
-    local skillKeys = {Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V}
-    for _, key in ipairs(skillKeys) do
-        VirtualInputManager:SendKeyEvent(true, key, false, game)
-        task.wait(0.08)
-        VirtualInputManager:SendKeyEvent(false, key, false, game)
-        task.wait(0.15)
-    end
+    if hrp then hrp.Velocity = Vector3.zero end
+    return true
 end
 
--- สวมใส่อาวุธที่ดีที่สุด
-local function equipWeapon()
+-- =========================================================================
+-- 4. SUBSYSTEM: TARGET ACQUISITION & PRIORITY SELECTION
+-- =========================================================================
+local function scanSeaTargets()
+    local enemies = workspace:FindFirstChild("Enemies")
+    if not enemies then return nil, nil end
+
+    local candidates = {}
+
+    for _, enemy in ipairs(enemies:GetChildren()) do
+        local nameLower = string.lower(enemy.Name)
+        local isSeaBeast = string.find(nameLower, "sea")
+        local isTerrorShark = string.find(nameLower, "terror")
+        local isGhostShip = string.find(nameLower, "ship")
+
+        if (isSeaBeast and Config.HuntSeaBeast) or 
+           (isTerrorShark and Config.HuntTerrorShark) or 
+           (isGhostShip and Config.HuntGhostShip) then
+
+            local hum = enemy:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 then
+                local root = enemy:FindFirstChild("Head") or enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChildWhichIsA("BasePart")
+                if root then
+                    table.insert(candidates, {
+                        Entity = enemy,
+                        Root = root,
+                        Health = hum.Health,
+                        Priority = isSeaBeast and 1 or (isTerrorShark and 2 or 3)
+                    })
+                end
+            end
+        end
+    end
+
+    if #candidates == 0 then return nil, nil end
+
+    -- ลำดับความสำคัญ: Sea Beast ก่อน ตามด้วยตัวที่เลือดน้อยที่สุด (Lowest HP first)
+    table.sort(candidates, function(a, b)
+        if a.Priority == b.Priority then
+            return a.Health < b.Health
+        end
+        return a.Priority < b.Priority
+    end)
+
+    return candidates[1].Entity, candidates[1].Root
+end
+
+-- =========================================================================
+-- 5. SUBSYSTEM: COMBAT & AIM EXECUTION
+-- =========================================================================
+local function equipSelectedWeapon()
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChild("Humanoid")
     if not hum then return end
 
-    for _, tool in ipairs(LocalPlayer.Backpack:GetChildren()) do
-        if tool:IsA("Tool") and (tool.ToolTip == "Blox Fruit" or tool.ToolTip == "Melee" or tool.ToolTip == "Sword") then
-            hum:EquipTool(tool)
-            break
+    local targetType = Config.SelectedWeapon
+
+    for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        if item:IsA("Tool") then
+            if targetType == "Melee" and item.ToolTip == "Melee" then
+                hum:EquipTool(item)
+                return
+            elseif targetType == "Sword" and item.ToolTip == "Sword" then
+                hum:EquipTool(item)
+                return
+            elseif targetType == "Fruit" and (item.ToolTip == "Blox Fruit" or string.find(item.Name, "Fruit")) then
+                hum:EquipTool(item)
+                return
+            end
         end
     end
 end
 
--- NoClip กันบัคกระแทกโมเดล
-RunService.Stepped:Connect(function()
+local function executeCombatCombo(targetRoot)
     local char = LocalPlayer.Character
-    if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
-            end
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not (hrp and targetRoot) then return end
+
+    -- 1. บังคับล็อกมุมมองก้มลงหาหัวเจ้าทะเล 90 องศา (Raycast Aim Lock)
+    hrp.CFrame = CFrame.lookAt(hrp.Position, targetRoot.Position)
+
+    -- 2. โจมตีธรรมดา (M1 Attack)
+    VirtualUser:CaptureController()
+    VirtualUser:Button1Down(Vector2.new(0, 0))
+
+    -- 3. สแปมสกิล Z, X, C, V (เว้นจังหวะ Cooldown)
+    if Config.AutoSkills then
+        local skills = {Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V}
+        for _, key in ipairs(skills) do
+            VirtualInputManager:SendKeyEvent(true, key, false, game)
+            task.wait(0.06)
+            VirtualInputManager:SendKeyEvent(false, key, false, game)
+            task.wait(0.12)
+        end
+    end
+end
+
+-- =========================================================================
+-- 6. STATE MACHINE ENGINE (MAIN LOOP & WATCHDOG)
+-- =========================================================================
+local function setState(newState)
+    print(string.format("[Sea Hunter] Transition: %s ➔ %s", State.Current, newState))
+    State.Current = newState
+    State.StateStartTime = os.time()
+end
+
+task.spawn(function()
+    print("[+] Zero-Bug Auto Sea Beast Hunter Engine v4.0 Active!")
+
+    while task.wait(0.1) do
+        if Config.Enabled then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = char and char:FindFirstChild("Humanoid")
+
+                if not (hrp and hum and hum.Health > 0) then return end
+
+                -- ---------------------------------------------------------
+                -- WATCHDOG RECOVERY TIMER (ระบบกันติดลูป / ค้าง)
+                -- ---------------------------------------------------------
+                if (os.time() - State.StateStartTime) > Config.WatchdogTimeout then
+                    if State.Current ~= "STAGE_5_COMBAT" then
+                        warn("[Watchdog] State timeout! Triggering Emergency Reset...")
+                        cancelCurrentTween()
+                        setState("STAGE_6_RESET")
+                        return
+                    end
+                end
+
+                -- ---------------------------------------------------------
+                -- STAGE 1: PREPARATION (เตรียมตัวที่ท่าเรือ Tiki)
+                -- ---------------------------------------------------------
+                if State.Current == "STAGE_1_PREPARE" then
+                    smoothMoveTo(WAYPOINTS.TikiPort + Vector3.new(0, 10, 0), 280)
+                    task.wait(0.5)
+
+                    -- ซื้อเรือ
+                    pcall(function()
+                        CommF:InvokeServer("BuyBoat", Config.BoatType)
+                    end)
+                    task.wait(1)
+
+                    setState("STAGE_2_TRANSIT")
+
+                -- ---------------------------------------------------------
+                -- STAGE 2: OCEAN TRANSIT (แล่นเรือผ่าน Waypoints สู่ Zone 6)
+                -- ---------------------------------------------------------
+                elseif State.Current == "STAGE_2_TRANSIT" then
+                    local entity, root = scanSeaTargets()
+                    if entity and root then
+                        cancelCurrentTween()
+                        State.TargetEntity = entity
+                        State.TargetRootPart = root
+                        setState("STAGE_5_COMBAT")
+                        return
+                    end
+
+                    smoothMoveTo(WAYPOINTS.Zone1_Entry, Config.TweenSpeed)
+                    smoothMoveTo(WAYPOINTS.Zone2_3, Config.TweenSpeed)
+                    smoothMoveTo(WAYPOINTS.Zone4_5, Config.TweenSpeed)
+                    smoothMoveTo(WAYPOINTS.Zone6_Apex, Config.TweenSpeed)
+
+                    setState("STAGE_3_PATROL")
+
+                -- ---------------------------------------------------------
+                -- STAGE 3: PATROL & SPAWN (ลาดตระเวน Danger Zone 6)
+                -- ---------------------------------------------------------
+                elseif State.Current == "STAGE_3_PATROL" then
+                    local entity, root = scanSeaTargets()
+                    if entity and root then
+                        cancelCurrentTween()
+                        State.TargetEntity = entity
+                        State.TargetRootPart = root
+                        setState("STAGE_5_COMBAT")
+                    else
+                        local patrolOffset = Vector3.new(math.random(-400, 400), 0, math.random(-400, 400))
+                        local targetPatrol = WAYPOINTS.Zone6_Apex + patrolOffset
+                        smoothMoveTo(targetPatrol, 160)
+                        task.wait(1.5)
+                    end
+
+                -- ---------------------------------------------------------
+                -- STAGE 5: COMBAT EXECUTION (สู้และล็อกเป้าเจ้าทะเล)
+                -- ---------------------------------------------------------
+                elseif State.Current == "STAGE_5_COMBAT" then
+                    local target = State.TargetEntity
+                    local targetRoot = State.TargetRootPart
+
+                    if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 and targetRoot then
+                        local safeHoverPos = targetRoot.Position + Vector3.new(0, Config.SafeCombatHeight, 0)
+                        hrp.CFrame = CFrame.lookAt(safeHoverPos, targetRoot.Position)
+                        hrp.Velocity = Vector3.zero
+
+                        equipSelectedWeapon()
+                        executeCombatCombo(targetRoot)
+                    else
+                        print("[Combat] เป้าหมายถูกกำจัดเรียบร้อย!")
+                        
+                        -- ตรวจสอบกรณีเกิด 3 ตัวพร้อมกัน (Rumbling Waters)
+                        local nextEntity, nextRoot = scanSeaTargets()
+                        if nextEntity and nextRoot then
+                            print("[Combat] พบเจ้าทะเลตัวถัดไป! ทำการล็อกเป้าต่อทันที...")
+                            State.TargetEntity = nextEntity
+                            State.TargetRootPart = nextRoot
+                            State.StateStartTime = os.time()
+                        else
+                            setState("STAGE_6_RESET")
+                        end
+                    end
+
+                -- ---------------------------------------------------------
+                -- STAGE 6: REWARD & RESET (รับรางวัลและรีเซ็ต)
+                -- ---------------------------------------------------------
+                elseif State.Current == "STAGE_6_RESET" then
+                    State.TargetEntity = nil
+                    State.TargetRootPart = nil
+                    cancelCurrentTween()
+                    task.wait(2) -- รอรับ Beli / Fragments
+
+                    setState("STAGE_1_PREPARE")
+                end
+            end)
         end
     end
 end)
 
 -- =========================================================================
--- MAIN STATE MACHINE LOOP
+-- 7. STANDALONE MODERN CONTROL GUI
 -- =========================================================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SeaBeastMasterGui"
+ScreenGui.ResetOnSpawn = false
+
+if syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = CoreGui
+elseif gethui then
+    ScreenGui.Parent = gethui()
+else
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 440, 0, 320)
+MainFrame.Position = UDim2.new(0.5, -220, 0.5, -160)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 22, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Size = UDim2.new(1, -20, 0, 40)
+Title.Position = UDim2.new(0, 15, 0, 5)
+Title.Text = "🌊 Zero-Bug Sea Beast Hunter v4.0"
+Title.TextColor3 = Color3.fromRGB(0, 220, 255)
+Title.TextSize = 17
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.BackgroundTransparency = 1
+
+local StatusLabel = Instance.new("TextLabel", MainFrame)
+StatusLabel.Size = UDim2.new(1, -30, 0, 25)
+StatusLabel.Position = UDim2.new(0, 15, 0, 45)
+StatusLabel.BackgroundColor3 = Color3.fromRGB(28, 35, 48)
+StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+StatusLabel.TextSize = 13
+StatusLabel.Font = Enum.Font.GothamSemibold
+StatusLabel.Text = "Status: " .. State.Current
+Instance.new("UICorner", StatusLabel).CornerRadius = UDim.new(0, 6)
+
 task.spawn(function()
-    print("[+] State Machine Sea Hunter Engine Loaded!")
-
-    while task.wait(0.1) do
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local hum = char and char:FindFirstChild("Humanoid")
-
-            if not (hrp and hum and hum.Health > 0) then return end
-
-            -- =============================================================
-            -- STAGE 1: เตรียมตัวที่เกาะ Tiki Outpost
-            -- =============================================================
-            if CurrentState == "STAGE_1_PREPARE" then
-                print("[State 1] เตรียมตัวและเดินทางไปท่าเรือ Tiki...")
-                SafePlatform.Position = Vector3.new(0, -5000, 0)
-                
-                -- เคลื่อนที่ไปท่าเรือ
-                smoothMoveTo(WAYPOINTS.TikiPort + Vector3.new(0, 10, 0), 300)
-                task.wait(0.5)
-
-                -- ซื้อเรือใบ (Grand Brigade)
-                pcall(function()
-                    CommF:InvokeServer("BuyBoat", "GrandBrigade")
-                end)
-                task.wait(1)
-
-                CurrentState = "STAGE_2_SAILING"
-
-            -- =============================================================
-            -- STAGE 2: แล่นเรือผ่าน Waypoints มุ่งหน้าสู่ Danger Zone 6
-            -- =============================================================
-            elseif CurrentState == "STAGE_2_SAILING" then
-                print("[State 2] กำลังแล่นเรือผ่านโซนอันตราย...")
-
-                -- ตรวจสอบระหว่างทางว่ามีเจ้าทะเลเกิดหรือไม่
-                local sb, sbRoot = findSeaBeast()
-                if sb and sbRoot then
-                    TargetSeaBeast = sb
-                    TargetRootPart = sbRoot
-                    CurrentState = "STAGE_4_COMBAT"
-                    return
-                end
-
-                -- บินระดับความสูง Y=60 ไปตามลำดับ Waypoints
-                smoothMoveTo(WAYPOINTS.Zone1_2, 200)
-                smoothMoveTo(WAYPOINTS.Zone3_4, 200)
-                smoothMoveTo(WAYPOINTS.Zone5_6, 200)
-
-                CurrentState = "STAGE_3_SEARCHING"
-
-            -- =============================================================
-            -- STAGE 3: ลอยตัววนรอบ Danger Zone 5-6 รอเจ้าทะเลเกิด
-            -- =============================================================
-            elseif CurrentState == "STAGE_3_SEARCHING" then
-                local sb, sbRoot = findSeaBeast()
-                if sb and sbRoot then
-                    print("[State 3] ตรวจพบเจ้าทะเล! สลับเข้าสู่โหมดต่อสู้...")
-                    TargetSeaBeast = sb
-                    TargetRootPart = sbRoot
-                    CurrentState = "STAGE_4_COMBAT"
-                else
-                    -- บินวนรอในรัศมี 800 studs ที่ Danger Zone 6
-                    local patrolOffset = Vector3.new(math.random(-400, 400), 0, math.random(-400, 400))
-                    smoothMoveTo(WAYPOINTS.Zone5_6 + patrolOffset, 150)
-                    task.wait(1)
-                end
-
-            -- =============================================================
-            -- STAGE 4: ลอยตัวล็อกเป้า & สแปมสกิลใส่เจ้าทะเล
-            -- =============================================================
-            elseif CurrentState == "STAGE_4_COMBAT" then
-                if TargetSeaBeast and TargetSeaBeast:FindFirstChild("Humanoid") and TargetSeaBeast.Humanoid.Health > 0 and TargetRootPart then
-                    -- 1. ลอยตัวเหนือหัวเจ้าทะเล 75 Studs แบบล็อกความสูง
-                    local safePosition = TargetRootPart.Position + Vector3.new(0, 75, 0)
-                    hrp.CFrame = CFrame.lookAt(safePosition, TargetRootPart.Position)
-                    hrp.Velocity = Vector3.zero
-
-                    -- 2. ย้ายแท่นกันจมน้ำมารองใต้เท้าทันที
-                    SafePlatform.Position = hrp.Position - Vector3.new(0, 3, 0)
-
-                    -- 3. สวมใส่อาวุธ
-                    equipWeapon()
-
-                    -- 4. รัวคลิกตีปกติ (M1)
-                    VirtualUser:CaptureController()
-                    VirtualUser:Button1Down(Vector2.new(0, 0))
-
-                    -- 5. สแปมสกิล Z, X, C, V
-                    executeSkillCombo(TargetRootPart)
-                else
-                    print("[State 4] เจ้าทะเลตายแล้ว! จบการต่อสู้...")
-                    CurrentState = "STAGE_5_CLEANUP"
-                end
-
-            -- =============================================================
-            -- STAGE 5: จบการต่อสู้ & รีเซ็ตกลับไป Stage 1
-            -- =============================================================
-            elseif CurrentState == "STAGE_5_CLEANUP" then
-                print("[State 5] รับรางวัลเรียบร้อย รีเซ็ตลูปเตรียมล่าตัวต่อไป...")
-                TargetSeaBeast = nil
-                TargetRootPart = nil
-                SafePlatform.Position = Vector3.new(0, -5000, 0)
-                task.wait(2)
-
-                CurrentState = "STAGE_1_PREPARE"
-            end
-        end)
+    while task.wait(0.5) do
+        if StatusLabel then
+            StatusLabel.Text = "Status: " .. State.Current
+        end
     end
 end)
+
+local Content = Instance.new("ScrollingFrame", MainFrame)
+Content.Size = UDim2.new(1, -30, 1, -85)
+Content.Position = UDim2.new(0, 15, 0, 75)
+Content.BackgroundTransparency = 1
+Content.CanvasSize = UDim2.new(0, 0, 0, 280)
+Content.ScrollBarThickness = 4
+
+local UIList = Instance.new("UIListLayout", Content)
+UIList.Padding = UDim.new(0, 8)
+
+local function createToggle(name, defaultVal, callback)
+    local state = defaultVal
+    local btn = Instance.new("TextButton", Content)
+    btn.Size = UDim2.new(1, -10, 0, 36)
+    btn.BackgroundColor3 = state and Color3.fromRGB(0, 150, 180) or Color3.fromRGB(30, 36, 48)
+    btn.Text = name .. (state and " [ ON ]" or " [ OFF ]")
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.TextSize = 13
+    btn.BorderSizePixel = 0
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 150, 180) or Color3.fromRGB(30, 36, 48)
+        btn.Text = name .. (state and " [ ON ]" or " [ OFF ]")
+        callback(state)
+    end)
+end
+
+createToggle("⚡ Auto Hunt Master Toggle", Config.Enabled, function(v) Config.Enabled = v end)
+createToggle("🐉 Hunt Sea Beast", Config.HuntSeaBeast, function(v) Config.HuntSeaBeast = v end)
+createToggle("🦈 Hunt Terror Shark", Config.HuntTerrorShark, function(v) Config.HuntTerrorShark = v end)
+createToggle("🎯 Auto Combo Skills (Z/X/C/V)", Config.AutoSkills, function(v) Config.AutoSkills = v end)
+
+local wpBtn = Instance.new("TextButton", Content)
+wpBtn.Size = UDim2.new(1, -10, 0, 36)
+wpBtn.BackgroundColor3 = Color3.fromRGB(45, 60, 90)
+wpBtn.Text = "🗡️ Weapon: " .. Config.SelectedWeapon
+wpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+wpBtn.Font = Enum.Font.GothamSemibold
+wpBtn.TextSize = 13
+wpBtn.BorderSizePixel = 0
+Instance.new("UICorner", wpBtn).CornerRadius = UDim.new(0, 6)
+
+local weapons = {"Fruit", "Melee", "Sword"}
+local wpIdx = 1
+wpBtn.MouseButton1Click:Connect(function()
+    wpIdx = (wpIdx % #weapons) + 1
+    Config.SelectedWeapon = weapons[wpIdx]
+    wpBtn.Text = "🗡️ Weapon: " .. Config.SelectedWeapon
+end)
+
+print("[+] Sea Beast Master UI Rendered Successfully!")
