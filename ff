@@ -1,11 +1,11 @@
 -- =========================================================================
--- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.4 (FIXED M1 & FAST ATTACK)
+-- BLOX FRUITS ULTIMATE AUTONOMOUS BOUNTY ENGINE v7.5 (ESP + MAX SKY RETREAT)
 -- Features:
---  1. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework hook)
---  2. Deep Garbage Collection / Upvalue Hook for CombatController
---  3. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
---  4. Auto Buffs (Buso, Ken, Race V3) + SafeZone Detection
---  5. Post-Combat Safe Sky Retreat + Emergency Sky Healing
+--  1. Real-Time 3D ESP & Wallhack Radar (Name, HP, Distance, Level, Status)
+--  2. Auto Max Sky Altitude Orbit (1,500 Studs) Immediately After Every Kill
+--  3. Real M1 Combo Chain + Fast Attack (Direct RegisterHit & CombatFramework Hook)
+--  4. Overlapped Stick Position (NoClip Behind Target 1.2 Studs)
+--  5. Auto Buffs (Buso, Ken, Race V3) + Emergency Sky Healing
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -25,23 +25,26 @@ local IsMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- CONFIGURATION
 -- =========================================================================
 local Config = {
-    FlySpeed = 280,
-    StickDistance = 1.2,         -- ระยะเกาะหลังศัตรู
-    HeightOffset = 0.5,          -- ระดับความสูงจากพื้น
-    M1AttackSpeed = 0.05,        -- ความเร็วในการสแปม M1 (วินาที)
-    PrimaryWeapon = "Melee",     -- "Melee" หรือ "Sword" หรือ "Blox Fruit"
-    FastAttack = true,           -- เปิดใช้งาน Fast Attack Bypass
-    HitboxSize = 80,             -- ขยายระยะรัศมีฮิตบ็อกซ์
+    FlySpeed = 300,
+    StickDistance = 1.2,          -- ระยะเกาะหลังศัตรู
+    HeightOffset = 0.5,           -- ระดับความสูง
+    M1AttackSpeed = 0.05,         -- ความเร็วในการสแปม M1
+    PrimaryWeapon = "Melee",      -- อาวุธหลัก: "Melee", "Sword", "Blox Fruit"
+    HitboxSize = 80,              -- รัศมีฮิตบ็อกซ์
     
-    -- SURVIVAL & RETREAT
+    -- ESP SETTINGS
+    EnableESP = true,             -- เปิด/ปิด ระบบ 3D ESP
+    ESPTextSize = 11,
+    
+    -- SURVIVAL & RETREAT TO MAX SKY
+    MaxSkyAltitude = 1500,        -- ลอยขึ้นฟ้าสูงสุด (1,500 Studs กันตาย 100%)
+    PostKillSkyDuration = 5.0,    -- ระยะเวลาลอยค้างบนฟ้าหลังฆ่าสำเร็จ (วินาที)
     AutoBuso = true,
     AutoKen = true,
     AutoRaceV3 = true,
     EmergencyEscape = true,
-    EmergencyHPThreshold = 35,
-    RecoveryHPThreshold = 85,
-    EscapeSkyAltitude = 450,
-    PostKillRetreatDuration = 3.5
+    EmergencyHPThreshold = 40,
+    RecoveryHPThreshold = 95
 }
 
 local Stats = {
@@ -175,6 +178,128 @@ local function CheckTargetStatus(player)
 
     return st
 end
+
+-- =========================================================================
+-- 3D ESP SYSTEM (NAME, HEALTH, DISTANCE, STATUS)
+-- =========================================================================
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "BountyGod_ESP"
+ESPFolder.Parent = (gethui and gethui()) or CoreGui
+
+local ESPObjects = {}
+
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    if ESPObjects[player] then return end
+
+    local bill = Instance.new("BillboardGui")
+    bill.Name = "ESP_" .. player.Name
+    bill.AlwaysOnTop = true
+    bill.Size = UDim2.new(0, 180, 0, 50)
+    bill.StudsOffset = Vector3.new(0, 3, 0)
+    bill.Enabled = Config.EnableESP
+    bill.Parent = ESPFolder
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = Config.ESPTextSize
+    label.RichText = true
+    label.Text = ""
+    label.Parent = bill
+
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "Highlight_" .. player.Name
+    highlight.FillTransparency = 0.65
+    highlight.OutlineTransparency = 0.1
+    highlight.Enabled = Config.EnableESP
+    highlight.Parent = ESPFolder
+
+    ESPObjects[player] = {
+        Billboard = bill,
+        Label = label,
+        Highlight = highlight
+    }
+end
+
+local function RemoveESP(player)
+    if ESPObjects[player] then
+        if ESPObjects[player].Billboard then ESPObjects[player].Billboard:Destroy() end
+        if ESPObjects[player].Highlight then ESPObjects[player].Highlight:Destroy() end
+        ESPObjects[player] = nil
+    end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do CreateESP(p) end
+Players.PlayerAdded:Connect(CreateESP)
+Players.PlayerRemoving:Connect(RemoveESP)
+
+RunService.RenderStepped:Connect(function()
+    if not Config.EnableESP then
+        for _, esp in pairs(ESPObjects) do
+            esp.Billboard.Enabled = false
+            esp.Highlight.Enabled = false
+        end
+        return
+    end
+
+    for player, esp in pairs(ESPObjects) do
+        local char = GetChar(player)
+        local root = GetRoot(char)
+        local hum = GetHum(char)
+
+        if char and root and hum and hum.Health > 0 and char.Parent then
+            esp.Billboard.Adornee = root
+            esp.Billboard.Enabled = true
+            esp.Highlight.Adornee = char
+            esp.Highlight.Enabled = true
+
+            local st = CheckTargetStatus(player)
+            local hpPercent = math.floor((hum.Health / math.max(1, hum.MaxHealth)) * 100)
+
+            local statusColor = "#00FF7F"
+            local highlightColor = Color3.fromRGB(0, 255, 127)
+            local tag = "[READY]"
+
+            if player == AppState.SelectedPlayer then
+                statusColor = "#00E5FF"
+                highlightColor = Color3.fromRGB(0, 229, 255)
+                tag = "[🎯 LOCKED TARGET]"
+            elseif st.InSafeZone then
+                statusColor = "#FFD700"
+                highlightColor = Color3.fromRGB(255, 215, 0)
+                tag = "[SAFE ZONE]"
+            elseif not st.PvPEnabled then
+                statusColor = "#FF5555"
+                highlightColor = Color3.fromRGB(255, 85, 85)
+                tag = "[PVP OFF]"
+            elseif not st.IsAlive then
+                statusColor = "#888888"
+                highlightColor = Color3.fromRGB(136, 136, 136)
+                tag = "[DEAD]"
+            end
+
+            esp.Highlight.FillColor = highlightColor
+            esp.Highlight.OutlineColor = highlightColor
+
+            esp.Label.Text = string.format(
+                "<font color='%s'><b>%s</b></font> <font color='#FFFFFF'>Lv.%d</font><br/>" ..
+                "<font color='#00FF7F'>HP: %d%%</font> | <font color='#FFD700'>%dm</font><br/>" ..
+                "<font color='%s'><b>%s</b></font>",
+                statusColor, player.DisplayName, st.Level,
+                hpPercent, st.Distance,
+                statusColor, tag
+            )
+        else
+            esp.Billboard.Enabled = false
+            esp.Highlight.Enabled = false
+        end
+    end
+end)
 
 -- =========================================================================
 -- AUTO BUFFS
@@ -366,7 +491,7 @@ local function ExecuteM1Combo()
     end)
 end
 
--- ลูปโจมตี M1 ต่อเนื่อง
+-- ลูป M1 อัตโนมัติ
 task.spawn(function()
     while true do
         if AppState.IsHunting and AppState.SelectedPlayer and not AppState.IsHealingInSky and not AppState.IsRetreating then
@@ -432,26 +557,31 @@ local function StopHunt(reason)
 end
 
 -- =========================================================================
--- POST-KILL RETREAT CONTROLLER
+-- POST-KILL MAXIMUM SKY RETREAT (ORBIT SHIELD)
 -- =========================================================================
-local function TriggerSafeRetreat()
+local function TriggerMaxSkyRetreat()
     if AppState.IsRetreating then return end
     AppState.IsHunting = false
     AppState.IsRetreating = true
-    AppState.CurrentCombatStatus = "Target Eliminated! Retreating to Safe Sky..."
+    AppState.CurrentCombatStatus = string.format("TARGET ELIMINATED! Ascending to Max Sky (%dm)...", Config.MaxSkyAltitude)
 
     task.spawn(function()
         local start = tick()
-        while tick() - start < Config.PostKillRetreatDuration do
+        while (tick() - start < Config.PostKillSkyDuration) do
             local myChar = GetChar(LocalPlayer)
             local myRoot = GetRoot(myChar)
-            if myRoot then
+            local myHum = GetHum(myChar)
+
+            if myRoot and myHum and myHum.Health > 0 then
                 ApplyPhysics(myRoot)
-                local safePos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
-                local diff = safePos - myRoot.Position
+                EnsureKen()
+                EnsureBuso()
+                
+                local maxSkyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
+                local diff = maxSkyPos - myRoot.Position
                 local bv = myRoot:FindFirstChild("BountyBV")
                 if bv then
-                    bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
+                    bv.Velocity = diff.Magnitude > 15 and diff.Unit * (Config.FlySpeed + 100) or Vector3.zero
                 end
             end
             task.wait(0.05)
@@ -464,12 +594,12 @@ local function TriggerSafeRetreat()
 
         AppState.IsRetreating = false
         AppState.SelectedPlayer = nil
-        StopHunt("Hunt Finished (Safe)")
+        StopHunt("Elimination Safe (Ready for Next Target)")
     end)
 end
 
 -- =========================================================================
--- MAIN ENGINE LOOP
+-- MAIN COMBAT & NAVIGATION ENGINE LOOP
 -- =========================================================================
 RunService.Heartbeat:Connect(function()
     if AppState.IsRetreating then return end
@@ -490,16 +620,17 @@ RunService.Heartbeat:Connect(function()
     if Config.EmergencyEscape and (currentHpPercent <= Config.EmergencyHPThreshold or AppState.IsHealingInSky) then
         if currentHpPercent < Config.RecoveryHPThreshold then
             AppState.IsHealingInSky = true
-            AppState.CurrentCombatStatus = string.format("HEALING: Sky Camp (%d%% HP)", math.floor(currentHpPercent))
+            AppState.CurrentCombatStatus = string.format("EMERGENCY ESCAPE: Max Sky Healing (%d%% HP)", math.floor(currentHpPercent))
             
             ApplyPhysics(myRoot)
             EnsureKen()
+            EnsureBuso()
             
-            local skyPos = Vector3.new(myRoot.Position.X, Config.EscapeSkyAltitude, myRoot.Position.Z)
+            local skyPos = Vector3.new(myRoot.Position.X, Config.MaxSkyAltitude, myRoot.Position.Z)
             local diff = skyPos - myRoot.Position
             local bv = myRoot:FindFirstChild("BountyBV")
             if bv then
-                bv.Velocity = diff.Magnitude > 10 and diff.Unit * Config.FlySpeed or Vector3.zero
+                bv.Velocity = diff.Magnitude > 15 and diff.Unit * Config.FlySpeed or Vector3.zero
             end
             return
         else
@@ -511,9 +642,9 @@ RunService.Heartbeat:Connect(function()
     local targetHum = GetHum(targetChar)
     local targetRoot = GetRoot(targetChar)
 
-    -- ตรวจสอบการตายของเป้าหมาย
+    -- ตรวจสอบการตายของเป้าหมาย -> ลอยขึ้นฟ้าสูงสุดทันที
     if not targetChar or not targetHum or targetHum.Health <= 0 or not targetChar.Parent then
-        TriggerSafeRetreat()
+        TriggerMaxSkyRetreat()
         return
     end
 
@@ -531,7 +662,7 @@ RunService.Heartbeat:Connect(function()
     TriggerRaceSkill()
     ApplyPhysics(myRoot)
 
-    -- คำนวณตำแหน่งประกบหลัง 1.2 Studs
+    -- คำนวณตำแหน่งแนบหลัง 1.2 Studs
     local stickCFrame = targetRoot.CFrame * CFrame.new(0, Config.HeightOffset, Config.StickDistance)
     local targetPos = stickCFrame.Position
     local currentPos = myRoot.Position
@@ -607,8 +738,8 @@ end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainWindow"
-MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.78, 0) or UDim2.new(0, 560, 0, 460)
-MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.10, 0) or UDim2.new(0.5, -280, 0.5, -230)
+MainFrame.Size = IsMobile and UDim2.new(0.94, 0, 0.82, 0) or UDim2.new(0, 570, 0, 480)
+MainFrame.Position = IsMobile and UDim2.new(0.03, 0, 0.08, 0) or UDim2.new(0.5, -285, 0.5, -240)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -633,13 +764,30 @@ end)
 local Header = Instance.new("TextLabel")
 Header.Size = UDim2.new(1, 0, 0, 38)
 Header.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
-Header.Text = "  ⚡ BOUNTY GOD v7.4 (FIXED M1 ENGINE)"
+Header.Text = "  ⚡ BOUNTY GOD v7.5 (ESP + MAX SKY RETREAT)"
 Header.TextColor3 = Color3.fromRGB(255, 255, 255)
 Header.TextSize = IsMobile and 11 or 13
 Header.Font = Enum.Font.GothamBold
 Header.TextXAlignment = Enum.TextXAlignment.Left
 Header.Parent = MainFrame
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 10)
+
+local ESPToggleBtn = Instance.new("TextButton")
+ESPToggleBtn.Size = UDim2.new(0, 80, 0, 24)
+ESPToggleBtn.Position = UDim2.new(1, -90, 0, 7)
+ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
+ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
+ESPToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ESPToggleBtn.Font = Enum.Font.GothamBold
+ESPToggleBtn.TextSize = 10
+ESPToggleBtn.Parent = Header
+Instance.new("UICorner", ESPToggleBtn).CornerRadius = UDim.new(0, 4)
+
+ESPToggleBtn.MouseButton1Click:Connect(function()
+    Config.EnableESP = not Config.EnableESP
+    ESPToggleBtn.Text = Config.EnableESP and "ESP: ON" or "ESP: OFF"
+    ESPToggleBtn.BackgroundColor3 = Config.EnableESP and Color3.fromRGB(40, 167, 69) or Color3.fromRGB(100, 100, 100)
+end)
 
 local StatsCard = Instance.new("Frame")
 StatsCard.Size = UDim2.new(1, -16, 0, 60)
@@ -681,6 +829,8 @@ local function SetupBountyListener()
             if diff > 0 then
                 Stats.BountyGained = Stats.BountyGained + diff
                 Stats.Kills = Stats.Kills + 1
+                -- ฆ่าได้สำเร็จ -> ลอยขึ้นฟ้าสูงสุดทันที
+                TriggerMaxSkyRetreat()
             elseif diff < 0 then
                 Stats.BountyLost = Stats.BountyLost + math.abs(diff)
                 Stats.Deaths = Stats.Deaths + 1
