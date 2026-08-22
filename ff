@@ -1,8 +1,6 @@
 -- =========================================================================
--- BLOX FRUITS: PURE AUTO SEA BEAST HUNTER (ZERO-BUG EDITION)
--- Dedicated Only For: Sea Beast & Terror Shark Hunting in Sea 3
--- Core Tech: 6-Stage State Machine + Anti-Rubberband Tween + 
--- Dynamic Anti-Drown Platform + Priority Target Queue + Radar HUD
+-- BLOX FRUITS: NO-BOAT DIRECT SEA BEAST HUNTER (V4.5 FAST & LIGHT)
+-- No Boat Needed! Direct Sky Flight to Danger Zone 6
 -- =========================================================================
 
 local Players = game:GetService("Players")
@@ -16,45 +14,31 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local CommF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
 
--- =========================================================================
--- 1. CONFIGURATION
--- =========================================================================
 local Config = {
     Enabled = true,
     HuntTerrorShark = true,
     AutoSkills = true,
     SelectedWeapon = "Fruit", -- Fruit, Melee, Sword
-    SafeCombatHeight = 75,    -- ความสูงเหนือหัวเจ้าทะเล (Studs)
-    TransitHeight = 80,       -- ความสูงตอนบินเดินทางข้ามโซน
-    TweenSpeed = 230,         -- ความเร็วเคลื่อนที่ (ไม่เกิน 250 เพื่อกัน Rubberband)
-    BoatType = "GrandBrigade",
-    WatchdogTimeout = 45      -- ตัดรีเซ็ตหากค้างเกิน 45 วิ
+    SafeCombatHeight = 75,    -- ลอยเหนือหัวเจ้าทะเล (Studs)
+    TransitHeight = 85,       -- บินระดับความสูง 85 studs เหนือน้ำ
+    TweenSpeed = 260          -- ความเร็วบินตรง
 }
 
 local State = {
-    Current = "STAGE_1_PREPARE",
-    StateStartTime = os.time(),
+    Current = "STAGE_1_FLY_TO_ZONE6",
     SailingStartTime = os.time(),
     TargetEntity = nil,
     TargetRootPart = nil,
     ActiveTween = nil
 }
 
--- Waypoints จากเกาะ Tiki Outpost สู่ Danger Zone 6
-local WAYPOINTS = {
-    TikiPort    = Vector3.new(-16350, 15, 120),
-    Zone1_Entry = Vector3.new(-18000, Config.TransitHeight, -800),
-    Zone2_3     = Vector3.new(-20500, Config.TransitHeight, -1800),
-    Zone4_5     = Vector3.new(-23500, Config.TransitHeight, -3200),
-    Zone6_Apex  = Vector3.new(-27000, Config.TransitHeight, -5000)
-}
+-- พิกัด Danger Zone 6 (หลังเกาะ Tiki Outpost)
+local ZONE_6_TARGET = Vector3.new(-27000, Config.TransitHeight, -5000)
 
--- =========================================================================
--- 2. DYNAMIC PLATFORM (กันตกน้ำตาย 100%) & NOCLIP
--- =========================================================================
+-- 1. แท่นกันตกน้ำ 100%
 local SafePlatform = Instance.new("Part")
-SafePlatform.Name = "BF_SeaHunter_Platform"
-SafePlatform.Size = Vector3.new(45, 2, 45)
+SafePlatform.Name = "BF_DirectPlatform"
+SafePlatform.Size = Vector3.new(40, 2, 40)
 SafePlatform.Anchored = true
 SafePlatform.CanCollide = true
 SafePlatform.Transparency = 0.8
@@ -65,7 +49,7 @@ SafePlatform.Parent = workspace
 RunService.Heartbeat:Connect(function()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp and (State.Current == "STAGE_5_COMBAT" or State.Current == "STAGE_3_PATROL") then
+    if hrp and Config.Enabled then
         SafePlatform.Position = hrp.Position - Vector3.new(0, 3.5, 0)
         SafePlatform.CanCollide = true
     else
@@ -92,9 +76,7 @@ LocalPlayer.Idled:Connect(function()
     VirtualUser:ClickButton2(Vector2.new(0, 0))
 end)
 
--- =========================================================================
--- 3. NAVIGATION (SMOOTH TWEEN ENGINE)
--- =========================================================================
+-- 2. ระบบบินสมูท
 local function cancelTween()
     if State.ActiveTween then
         State.ActiveTween:Cancel()
@@ -102,7 +84,7 @@ local function cancelTween()
     end
 end
 
-local function smoothMoveTo(targetPos, speed)
+local function smoothFly(targetPos, speed)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
@@ -116,20 +98,18 @@ local function smoothMoveTo(targetPos, speed)
     
     cancelTween()
     State.ActiveTween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(targetPos)})
-    
     hrp.Velocity = Vector3.zero
     State.ActiveTween:Play()
     
     local completed = false
     local conn
-    conn = State.ActiveTween.Completed:Connect(function(status)
-        if status == Enum.PlaybackState.Completed then
-            completed = true
-        end
+    conn = State.ActiveTween.Completed:Connect(function(s)
+        if s == Enum.PlaybackState.Completed then completed = true end
         conn:Disconnect()
     end)
 
     while not completed and State.ActiveTween do
+        -- เจอเจ้าทะเลระหว่างทางให้หยุดบินทันที
         if workspace:FindFirstChild("Enemies") and workspace.Enemies:FindFirstChild("Sea Beast") then
             cancelTween()
             return true
@@ -141,9 +121,41 @@ local function smoothMoveTo(targetPos, speed)
     return true
 end
 
--- =========================================================================
--- 4. COMBAT & TARGET SCANNER
--- =========================================================================
+-- 3. สแกนและโจมตี
+local function scanSeaBoss()
+    local enemies = workspace:FindFirstChild("Enemies")
+    if not enemies then return nil, nil end
+
+    local candidates = {}
+    for _, enemy in ipairs(enemies:GetChildren()) do
+        local name = string.lower(enemy.Name)
+        local isSB = string.find(name, "sea")
+        local isTerror = string.find(name, "terror")
+
+        if isSB or (isTerror and Config.HuntTerrorShark) then
+            local hum = enemy:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 then
+                local root = enemy:FindFirstChild("Head") or enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChildWhichIsA("BasePart")
+                if root then
+                    table.insert(candidates, {
+                        Entity = enemy,
+                        Root = root,
+                        Health = hum.Health,
+                        Priority = isSB and 1 or 2
+                    })
+                end
+            end
+        end
+    end
+
+    if #candidates == 0 then return nil, nil end
+    table.sort(candidates, function(a, b)
+        if a.Priority == b.Priority then return a.Health < b.Health end
+        return a.Priority < b.Priority
+    end)
+    return candidates[1].Entity, candidates[1].Root
+end
+
 local function equipWeapon()
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChild("Humanoid")
@@ -166,19 +178,16 @@ local function equipWeapon()
     end
 end
 
-local function executeCombatCombo(targetRoot)
+local function attackCombo(targetRoot)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not (hrp and targetRoot) then return end
 
-    -- ล็อกหน้ามองลงตรงหัวเจ้าทะเล
+    -- ล็อกหน้ามองตรงลงเป้าหมาย
     hrp.CFrame = CFrame.lookAt(hrp.Position, targetRoot.Position)
-
-    -- คลิก M1
     VirtualUser:CaptureController()
     VirtualUser:Button1Down(Vector2.new(0, 0))
 
-    -- สแปมสกิล Z, X, C, V
     if Config.AutoSkills then
         local skillKeys = {Enum.KeyCode.Z, Enum.KeyCode.X, Enum.KeyCode.C, Enum.KeyCode.V}
         for _, key in ipairs(skillKeys) do
@@ -190,53 +199,11 @@ local function executeCombatCombo(targetRoot)
     end
 end
 
-local function scanSeaTargets()
-    local enemies = workspace:FindFirstChild("Enemies")
-    if not enemies then return nil, nil end
-
-    local candidates = {}
-    for _, enemy in ipairs(enemies:GetChildren()) do
-        local nameLower = string.lower(enemy.Name)
-        local isSeaBeast = string.find(nameLower, "sea")
-        local isTerrorShark = string.find(nameLower, "terror")
-
-        if isSeaBeast or (isTerrorShark and Config.HuntTerrorShark) then
-            local hum = enemy:FindFirstChild("Humanoid")
-            if hum and hum.Health > 0 then
-                local root = enemy:FindFirstChild("Head") or enemy:FindFirstChild("HumanoidRootPart") or enemy:FindFirstChildWhichIsA("BasePart")
-                if root then
-                    table.insert(candidates, {
-                        Entity = enemy,
-                        Root = root,
-                        Health = hum.Health,
-                        Priority = isSeaBeast and 1 or 2
-                    })
-                end
-            end
-        end
-    end
-
-    if #candidates == 0 then return nil, nil end
-
-    table.sort(candidates, function(a, b)
-        if a.Priority == b.Priority then return a.Health < b.Health end
-        return a.Priority < b.Priority
-    end)
-
-    return candidates[1].Entity, candidates[1].Root
-end
-
 -- =========================================================================
--- 5. STATE MACHINE (MAIN HUNTER LOOP)
+-- MAIN STATE LOOP (NO BOAT REQUIRED)
 -- =========================================================================
-local function setState(newState)
-    print(string.format("[Sea Hunter] %s ➔ %s", State.Current, newState))
-    State.Current = newState
-    State.StateStartTime = os.time()
-end
-
 task.spawn(function()
-    print("[+] Pure Sea Beast Hunter Active!")
+    print("[+] No-Boat Direct Sea Hunter Started!")
 
     while task.wait(0.1) do
         if Config.Enabled then
@@ -246,58 +213,38 @@ task.spawn(function()
                 local hum = char and char:FindFirstChild("Humanoid")
                 if not (hrp and hum and hum.Health > 0) then return end
 
-                -- Watchdog Recovery (กันค้างเกิน 45 วิ)
-                if (os.time() - State.StateStartTime) > Config.WatchdogTimeout then
-                    if State.Current ~= "STAGE_5_COMBAT" then
-                        warn("[Watchdog] State timeout! Triggering Emergency Reset...")
+                -- STAGE 1: บินตรงสู่ Danger Zone 6
+                if State.Current == "STAGE_1_FLY_TO_ZONE6" then
+                    local boss, root = scanSeaBoss()
+                    if boss and root then
                         cancelTween()
-                        setState("STAGE_6_RESET")
+                        State.TargetEntity = boss
+                        State.TargetRootPart = root
+                        State.Current = "STAGE_3_COMBAT"
                         return
                     end
-                end
 
-                -- STAGE 1: ซื้อเรือที่เกาะ Tiki
-                if State.Current == "STAGE_1_PREPARE" then
-                    smoothMoveTo(WAYPOINTS.TikiPort + Vector3.new(0, 10, 0), 280)
-                    task.wait(0.5)
-                    pcall(function() CommF:InvokeServer("BuyBoat", Config.BoatType) end)
-                    task.wait(1)
+                    smoothFly(ZONE_6_TARGET, Config.TweenSpeed)
                     State.SailingStartTime = os.time()
-                    setState("STAGE_2_TRANSIT")
+                    State.Current = "STAGE_2_PATROL_ZONE6"
 
-                -- STAGE 2: เดินทางผ่าน Waypoints สู่ Danger Zone 6
-                elseif State.Current == "STAGE_2_TRANSIT" then
-                    local entity, root = scanSeaTargets()
-                    if entity and root then
+                -- STAGE 2: ลอยตัววนรอบ Danger Zone 6 รอเกิด
+                elseif State.Current == "STAGE_2_PATROL_ZONE6" then
+                    local boss, root = scanSeaBoss()
+                    if boss and root then
                         cancelTween()
-                        State.TargetEntity = entity
+                        State.TargetEntity = boss
                         State.TargetRootPart = root
-                        setState("STAGE_5_COMBAT")
-                        return
-                    end
-
-                    smoothMoveTo(WAYPOINTS.Zone1_Entry, Config.TweenSpeed)
-                    smoothMoveTo(WAYPOINTS.Zone2_3, Config.TweenSpeed)
-                    smoothMoveTo(WAYPOINTS.Zone4_5, Config.TweenSpeed)
-                    smoothMoveTo(WAYPOINTS.Zone6_Apex, Config.TweenSpeed)
-                    setState("STAGE_3_PATROL")
-
-                -- STAGE 3: ลาดตระเวน Danger Zone 6
-                elseif State.Current == "STAGE_3_PATROL" then
-                    local entity, root = scanSeaTargets()
-                    if entity and root then
-                        cancelTween()
-                        State.TargetEntity = entity
-                        State.TargetRootPart = root
-                        setState("STAGE_5_COMBAT")
+                        State.Current = "STAGE_3_COMBAT"
                     else
-                        local patrolOffset = Vector3.new(math.random(-400, 400), 0, math.random(-400, 400))
-                        smoothMoveTo(WAYPOINTS.Zone6_Apex + patrolOffset, 160)
+                        -- ขยับวนไปมาเล็กน้อยในรัศมี 500 studs เพื่อ Trigger Spawn
+                        local offset = Vector3.new(math.random(-300, 300), 0, math.random(-300, 300))
+                        smoothFly(ZONE_6_TARGET + offset, 160)
                         task.wait(1.5)
                     end
 
-                -- STAGE 5: ลอยตัวล็อกเป้าสู้เจ้าทะเล
-                elseif State.Current == "STAGE_5_COMBAT" then
+                -- STAGE 3: สู้เจ้าทะเล
+                elseif State.Current == "STAGE_3_COMBAT" then
                     local target = State.TargetEntity
                     local root = State.TargetRootPart
                     if target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0 and root then
@@ -305,43 +252,35 @@ task.spawn(function()
                         hrp.CFrame = CFrame.lookAt(safeHover, root.Position)
                         hrp.Velocity = Vector3.zero
                         equipWeapon()
-                        executeCombatCombo(root)
+                        attackCombo(root)
                     else
-                        local nextEntity, nextRoot = scanSeaTargets()
-                        if nextEntity and nextRoot then
-                            State.TargetEntity = nextEntity
+                        -- ตรวจสอบตัวถัดไป (Rumbling Waters)
+                        local nextBoss, nextRoot = scanSeaBoss()
+                        if nextBoss and nextRoot then
+                            State.TargetEntity = nextBoss
                             State.TargetRootPart = nextRoot
-                            State.StateStartTime = os.time()
                         else
-                            setState("STAGE_6_RESET")
+                            task.wait(2) -- รอรับ Beli
+                            State.TargetEntity = nil
+                            State.TargetRootPart = nil
+                            State.Current = "STAGE_2_PATROL_ZONE6"
                         end
                     end
-
-                -- STAGE 6: รับรางวัลและรีเซ็ตลูป
-                elseif State.Current == "STAGE_6_RESET" then
-                    State.TargetEntity = nil
-                    State.TargetRootPart = nil
-                    cancelTween()
-                    task.wait(2)
-                    setState("STAGE_1_PREPARE")
                 end
             end)
         end
     end
 end)
 
--- =========================================================================
--- 6. DEDICATED MINIMALIST UI + RADAR HUD
--- =========================================================================
+-- UI
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "PureSeaBeastGui"
+ScreenGui.Name = "DirectSeaHunterUI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = (gethui and gethui()) or (syn and syn.protect_gui and CoreGui) or CoreGui or LocalPlayer:WaitForChild("PlayerGui")
 
 local MainFrame = Instance.new("Frame", ScreenGui)
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 360, 0, 260)
-MainFrame.Position = UDim2.new(0.5, -180, 0.5, -130)
+MainFrame.Size = UDim2.new(0, 320, 0, 180)
+MainFrame.Position = UDim2.new(0.5, -160, 0.5, -90)
 MainFrame.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -349,155 +288,59 @@ MainFrame.Draggable = true
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
 
 local Title = Instance.new("TextLabel", MainFrame)
-Title.Size = UDim2.new(1, -20, 0, 35)
+Title.Size = UDim2.new(1, -20, 0, 30)
 Title.Position = UDim2.new(0, 15, 0, 5)
-Title.Text = "🌊 Pure Sea Beast Hunter"
+Title.Text = "⚡ Direct Sky Sea Hunter (No Boat)"
 Title.TextColor3 = Color3.fromRGB(0, 230, 255)
-Title.TextSize = 16
+Title.TextSize = 14
 Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.BackgroundTransparency = 1
 
 local StateLabel = Instance.new("TextLabel", MainFrame)
 StateLabel.Size = UDim2.new(1, -30, 0, 24)
-StateLabel.Position = UDim2.new(0, 15, 0, 40)
+StateLabel.Position = UDim2.new(0, 15, 0, 38)
 StateLabel.BackgroundColor3 = Color3.fromRGB(24, 30, 42)
 StateLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-StateLabel.TextSize = 12
+StateLabel.TextSize = 11
 StateLabel.Font = Enum.Font.GothamSemibold
 StateLabel.Text = "State: " .. State.Current
 Instance.new("UICorner", StateLabel).CornerRadius = UDim.new(0, 6)
 
-local Content = Instance.new("ScrollingFrame", MainFrame)
-Content.Size = UDim2.new(1, -30, 1, -75)
-Content.Position = UDim2.new(0, 15, 0, 70)
-Content.BackgroundTransparency = 1
-Content.CanvasSize = UDim2.new(0, 0, 0, 190)
-Content.ScrollBarThickness = 3
-
-local UIList = Instance.new("UIListLayout", Content)
-UIList.Padding = UDim.new(0, 6)
-
-local function createToggle(name, defaultVal, callback)
-    local state = defaultVal
-    local btn = Instance.new("TextButton", Content)
-    btn.Size = UDim2.new(1, -10, 0, 34)
-    btn.BackgroundColor3 = state and Color3.fromRGB(0, 160, 190) or Color3.fromRGB(28, 34, 46)
-    btn.Text = name .. (state and " [ ON ]" or " [ OFF ]")
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.Font = Enum.Font.GothamSemibold
-    btn.TextSize = 13
-    btn.BorderSizePixel = 0
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-
-    btn.MouseButton1Click:Connect(function()
-        state = not state
-        btn.BackgroundColor3 = state and Color3.fromRGB(0, 160, 190) or Color3.fromRGB(28, 34, 46)
-        btn.Text = name .. (state and " [ ON ]" or " [ OFF ]")
-        callback(state)
-    end)
-end
-
-createToggle("⚡ Auto Hunt Master Toggle", Config.Enabled, function(v) Config.Enabled = v end)
-createToggle("🦈 Hunt Terror Shark Also", Config.HuntTerrorShark, function(v) Config.HuntTerrorShark = v end)
-createToggle("🎯 Auto Combo Skills (Z/X/C/V)", Config.AutoSkills, function(v) Config.AutoSkills = v end)
-
-local wpBtn = Instance.new("TextButton", Content)
-wpBtn.Size = UDim2.new(1, -10, 0, 34)
-wpBtn.BackgroundColor3 = Color3.fromRGB(45, 60, 90)
-wpBtn.Text = "🗡️ Weapon: " .. Config.SelectedWeapon
-wpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-wpBtn.Font = Enum.Font.GothamSemibold
-wpBtn.TextSize = 13
-wpBtn.BorderSizePixel = 0
-Instance.new("UICorner", wpBtn).CornerRadius = UDim.new(0, 6)
-
-local weapons = {"Fruit", "Melee", "Sword"}
-local wpIdx = 1
-wpBtn.MouseButton1Click:Connect(function()
-    wpIdx = (wpIdx % #weapons) + 1
-    Config.SelectedWeapon = weapons[wpIdx]
-    wpBtn.Text = "🗡️ Weapon: " .. Config.SelectedWeapon
-end)
-
--- 2. Floating Spawn Radar HUD
-local RadarFrame = Instance.new("Frame", ScreenGui)
-RadarFrame.Name = "SeaBeastRadar"
-RadarFrame.Size = UDim2.new(0, 220, 0, 85)
-RadarFrame.Position = UDim2.new(1, -235, 0, 45)
-RadarFrame.BackgroundColor3 = Color3.fromRGB(15, 20, 28)
-RadarFrame.BorderSizePixel = 0
-RadarFrame.Active = true
-RadarFrame.Draggable = true
-Instance.new("UICorner", RadarFrame).CornerRadius = UDim.new(0, 8)
-
-local RadarTitle = Instance.new("TextLabel", RadarFrame)
-RadarTitle.Size = UDim2.new(1, 0, 0, 22)
-RadarTitle.Text = "📡 Sea Beast Radar"
-RadarTitle.TextColor3 = Color3.fromRGB(0, 230, 255)
-RadarTitle.Font = Enum.Font.GothamBold
-RadarTitle.TextSize = 12
-RadarTitle.BackgroundTransparency = 1
-
-local TimerLabel = Instance.new("TextLabel", RadarFrame)
-TimerLabel.Size = UDim2.new(1, 0, 0, 22)
-TimerLabel.Position = UDim2.new(0, 0, 0, 24)
-TimerLabel.Text = "⏱️ Sailing: 00:00"
-TimerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-TimerLabel.Font = Enum.Font.GothamSemibold
+local TimerLabel = Instance.new("TextLabel", MainFrame)
+TimerLabel.Size = UDim2.new(1, -30, 0, 24)
+TimerLabel.Position = UDim2.new(0, 15, 0, 68)
+TimerLabel.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
+TimerLabel.TextColor3 = Color3.fromRGB(0, 230, 255)
 TimerLabel.TextSize = 12
-TimerLabel.BackgroundTransparency = 1
+TimerLabel.Font = Enum.Font.GothamSemibold
+TimerLabel.Text = "⏱️ In Zone 6: 00:00"
+Instance.new("UICorner", TimerLabel).CornerRadius = UDim.new(0, 6)
 
-local RadarStatus = Instance.new("TextLabel", RadarFrame)
-RadarStatus.Size = UDim2.new(1, 0, 0, 28)
-RadarStatus.Position = UDim2.new(0, 0, 0, 48)
-RadarStatus.Text = "🌊 Searching Sea Events..."
-RadarStatus.TextColor3 = Color3.fromRGB(150, 180, 210)
-RadarStatus.Font = Enum.Font.Gotham
-RadarStatus.TextSize = 11
-RadarStatus.BackgroundTransparency = 1
+local ToggleBtn = Instance.new("TextButton", MainFrame)
+ToggleBtn.Size = UDim2.new(1, -30, 0, 35)
+ToggleBtn.Position = UDim2.new(0, 15, 0, 100)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 190)
+ToggleBtn.Text = "⚡ Auto Hunt: [ ON ]"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.TextSize = 13
+Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 6)
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    Config.Enabled = not Config.Enabled
+    ToggleBtn.BackgroundColor3 = Config.Enabled and Color3.fromRGB(0, 160, 190) or Color3.fromRGB(35, 40, 50)
+    ToggleBtn.Text = "⚡ Auto Hunt: " .. (Config.Enabled and "[ ON ]" or "[ OFF ]")
+end)
 
 task.spawn(function()
     while task.wait(0.5) do
-        if StateLabel then
-            StateLabel.Text = "State: " .. State.Current
-        end
-        if Config.Enabled then
+        if StateLabel then StateLabel.Text = "State: " .. State.Current end
+        if Config.Enabled and State.Current == "STAGE_2_PATROL_ZONE6" then
             local elapsed = os.time() - State.SailingStartTime
-            local mins = math.floor(elapsed / 60)
-            local secs = elapsed % 60
-            TimerLabel.Text = string.format("⏱️ Sailing: %02d:%02d", mins, secs)
-
-            if elapsed < 120 then
-                RadarStatus.Text = "⏳ Cooldown Phase"
-                RadarStatus.TextColor3 = Color3.fromRGB(200, 200, 100)
-            elseif elapsed >= 120 and elapsed < 300 then
-                RadarStatus.Text = "🟢 High Chance (Zone 5-6)"
-                RadarStatus.TextColor3 = Color3.fromRGB(100, 255, 120)
-            else
-                RadarStatus.Text = "🔥 Peak Spawn Window!"
-                RadarStatus.TextColor3 = Color3.fromRGB(255, 100, 100)
-            end
-        else
-            TimerLabel.Text = "⏱️ Sailing: Inactive"
-            RadarStatus.Text = "Auto Hunt [OFF]"
-            RadarStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
+            TimerLabel.Text = string.format("⏱️ In Zone 6: %02d:%02d", math.floor(elapsed / 60), elapsed % 60)
         end
     end
 end)
 
-workspace.Enemies.ChildAdded:Connect(function(child)
-    local name = string.lower(child.Name)
-    if string.find(name, "sea") then
-        RadarStatus.Text = "🚨 SEA BEAST DETECTED! 🚨"
-        RadarStatus.TextColor3 = Color3.fromRGB(255, 50, 50)
-        pcall(function()
-            local sound = Instance.new("Sound", workspace)
-            sound.SoundId = "rbxassetid://4590662766"
-            sound.Volume = 2
-            sound:Play()
-        end)
-    end
-end)
-
-print("[+] Pure Sea Beast Hunter Loaded Successfully!")
+print("[+] No-Boat Direct Sea Hunter Loaded!")
